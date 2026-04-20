@@ -13,83 +13,137 @@ export interface DecodedTileCode {
 }
 
 export class TileCodeMapper {
-    public static readonly EMPTY = 0;
+    public static readonly EMPTY_CODE = 0;
+
+    public static readonly NORMAL_MIN_CODE = 1;
+    public static readonly NORMAL_MAX_CODE = 49;
+
+    public static readonly ROCKET_HORIZONTAL_CODE = 50;
+    public static readonly ROCKET_VERTICAL_CODE = 60;
+    public static readonly BOMB_CODE = 70;
+
+    public static readonly DISCO_MIN_CODE = 80;
+    public static readonly DISCO_MAX_CODE = 99;
 
     public encodeEmpty(): number {
-        return TileCodeMapper.EMPTY;
+        return TileCodeMapper.EMPTY_CODE;
     }
 
     public encodeNormal(color: number): number {
-        this.validatePositiveColor(color, "Normal");
+        this.validateNormalColor(color);
         return color;
     }
 
     public encodeRocketHorizontal(): number {
-        return 50;
+        return TileCodeMapper.ROCKET_HORIZONTAL_CODE;
     }
 
     public encodeRocketVertical(): number {
-        return 60;
+        return TileCodeMapper.ROCKET_VERTICAL_CODE;
     }
 
     public encodeBomb(): number {
-        return 70;
+        return TileCodeMapper.BOMB_CODE;
     }
 
     public encodeDisco(color: number): number {
-        this.validatePositiveColor(color, "Disco");
-        return 80 + color;
+        this.validateDiscoColor(color);
+        return TileCodeMapper.DISCO_MIN_CODE + color - 1;
     }
 
     public decode(code: number): DecodedTileCode {
-        if (code === TileCodeMapper.EMPTY) {
+        if (code === TileCodeMapper.EMPTY_CODE) {
             return {
                 kind: TileCodeKind.Empty,
                 color: null,
             };
         }
 
-        if (code >= 1 && code <= 49) {
+        if (this.isNormalCode(code)) {
             return {
                 kind: TileCodeKind.Normal,
                 color: code,
             };
         }
 
-        if (code === 50) {
+        if (code === TileCodeMapper.ROCKET_HORIZONTAL_CODE) {
             return {
                 kind: TileCodeKind.RocketHorizontal,
                 color: null,
             };
         }
 
-        if (code === 60) {
+        if (code === TileCodeMapper.ROCKET_VERTICAL_CODE) {
             return {
                 kind: TileCodeKind.RocketVertical,
                 color: null,
             };
         }
 
-        if (code === 70) {
+        if (code === TileCodeMapper.BOMB_CODE) {
             return {
                 kind: TileCodeKind.Bomb,
                 color: null,
             };
         }
 
-        if (code >= 81 && code <= 89) {
+        if (this.isDiscoCode(code)) {
             return {
                 kind: TileCodeKind.Disco,
-                color: code - 80,
+                color: code - TileCodeMapper.DISCO_MIN_CODE + 1,
             };
         }
 
         throw new Error(`[TileCodeMapper] Unsupported tile code: ${code}`);
     }
 
-    private validatePositiveColor(color: number, label: string): void {
-        if (!Number.isInteger(color) || color <= 0) {
-            throw new Error(`[TileCodeMapper] ${label} color must be a positive integer. Got: ${color}`);
+    public isEmptyCode(code: number): boolean {
+        return code === TileCodeMapper.EMPTY_CODE;
+    }
+
+    public isNormalCode(code: number): boolean {
+        return (
+            code >= TileCodeMapper.NORMAL_MIN_CODE &&
+            code <= TileCodeMapper.NORMAL_MAX_CODE
+        );
+    }
+
+    public isDiscoCode(code: number): boolean {
+        return (
+            code >= TileCodeMapper.DISCO_MIN_CODE &&
+            code <= TileCodeMapper.DISCO_MAX_CODE
+        );
+    }
+
+    private validateNormalColor(color: number): void {
+        if (!Number.isInteger(color)) {
+            throw new Error(`[TileCodeMapper] Normal color must be an integer. Got: ${color}`);
+        }
+
+        if (
+            color < TileCodeMapper.NORMAL_MIN_CODE ||
+            color > TileCodeMapper.NORMAL_MAX_CODE
+        ) {
+            throw new Error(
+                `[TileCodeMapper] Normal color is out of supported range. ` +
+                `Expected ${TileCodeMapper.NORMAL_MIN_CODE}..${TileCodeMapper.NORMAL_MAX_CODE}, got: ${color}`
+            );
+        }
+    }
+
+    private validateDiscoColor(color: number): void {
+        if (!Number.isInteger(color)) {
+            throw new Error(`[TileCodeMapper] Disco color must be an integer. Got: ${color}`);
+        }
+
+        const discoColorCapacity =
+            TileCodeMapper.DISCO_MAX_CODE - TileCodeMapper.DISCO_MIN_CODE + 1;
+
+        if (color < 1 || color > discoColorCapacity) {
+            throw new Error(
+                `[TileCodeMapper] Disco color is out of supported range. ` +
+                `Expected 1..${discoColorCapacity}, got: ${color}`
+            );
         }
     }
 }
