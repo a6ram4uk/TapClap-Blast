@@ -80,9 +80,10 @@ export default class GameEntry extends cc.Component {
         this.applyBoardChanges(result);
 
         const destroyIds = result.destroyStep ? result.destroyStep.tileIds.join(", ") : "none";
+        const fallMoves = result.fallStep ? result.fallStep.moves.length : 0;
 
         cc.log(
-            `[Click] valid tileId=${tileId}, groupSize=${result.groupSize}, scoreGained=${result.scoreGained}, destroyIds=[${destroyIds}], movesLeft=${this._session.getGameStateModel().movesLeft}, score=${this._session.getGameStateModel().score}, status=${this._session.getGameStateModel().status}`
+            `[Click] valid tileId=${tileId}, groupSize=${result.groupSize}, scoreGained=${result.scoreGained}, destroyIds=[${destroyIds}], fallMoves=${fallMoves}, movesLeft=${this._session.getGameStateModel().movesLeft}, score=${this._session.getGameStateModel().score}, status=${this._session.getGameStateModel().status}`
         );
 
         this.logGroupsSummary();
@@ -129,6 +130,10 @@ export default class GameEntry extends cc.Component {
 
         if (result.destroyStep) {
             this._boardService.applyDestroyStep(this._session, result.destroyStep);
+        }
+
+        if (result.fallStep) {
+            this._boardService.applyFallStep(this._session, result.fallStep);
         }
 
         this.rebuildBoardGroupsModel();
