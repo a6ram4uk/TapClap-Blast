@@ -1,8 +1,10 @@
+import { BoardActionResult } from "../../core/actions/BoardActionResult";
 import { BoardGroupsModel } from "../../core/groups/BoardGroupsModel";
 import { GroupFinder } from "../../core/groups/GroupFinder";
-import { TileData } from "../../core/models/TileData";
+import { GameStatus } from "../../core/models/GameStatus";
 import { LevelsCatalogLoader } from "../../core/loaders/LevelsCatalogLoader";
 import { LevelLoader } from "../../core/loaders/LevelLoader";
+import { BoardService } from "../../core/services/BoardService";
 import { LevelValidator } from "../../core/services/LevelValidator";
 import { LevelSequenceResolver } from "../../core/services/LevelSequenceResolver";
 import { LevelSessionFactory } from "../../core/services/LevelSessionFactory";
@@ -22,6 +24,7 @@ export default class GameEntry extends cc.Component {
     private readonly _levelSequenceResolver: LevelSequenceResolver = new LevelSequenceResolver();
     private readonly _sessionFactory: LevelSessionFactory = new LevelSessionFactory();
     private readonly _groupFinder: GroupFinder = new GroupFinder();
+    private readonly _boardService: BoardService = new BoardService();
 
     private _session: LevelSession | null = null;
     private _isBusy: boolean = false;
@@ -70,27 +73,49 @@ export default class GameEntry extends cc.Component {
             return;
         }
 
-        const clickedTile = this.findTileById(tileId);
-        if (!clickedTile) {
-            return;
-        }
+        const result = this._boardService.resolveNormalClick(this._session, tileId);
 
-        const boardGroupsModel = this._session.getBoardGroupsModel();
-        if (!boardGroupsModel) {
-            return;
-        }
-
-        const group = boardGroupsModel.getGroupByTileId(tileId);
-
-        if (group === null) {
+        if (!result.isValidAction) {
             cc.log(`[Click] invalid tileId=${tileId}`);
             this.boardView.playInvalidClick(tileId);
             return;
         }
 
+        this.applyActionResult(result);
+
         cc.log(
-            `[Click] valid tileId=${tileId}, groupId=${group.groupId}, groupSize=${group.tiles.length}`
+            `[Click] valid tileId=${tileId}, groupSize=${result.groupSize}, scoreGained=${result.scoreGained}, movesLeft=${this._session.getGameStateModel().movesLeft}, score=${this._session.getGameStateModel().score}, status=${this._session.getGameStateModel().status}`
         );
+    }
+
+    private applyActionResult(result: BoardActionResult): void {
+        if (!this._session) {
+            return;
+        }
+
+        if (!result.isValidAction) {
+            return;
+        }
+
+        const gameStateModel = this._session.getGameStateModel();
+
+        if (result.consumedMove) {
+            gameStateModel.movesLeft -= 1;
+        }
+
+        gameStateModel.score += result.scoreGained;
+
+        if (gameStateModel.score >= gameStateModel.targetScore) {
+            gameStateModel.status = GameStatus.Won;
+            return;
+        }
+
+        if (gameStateModel.movesLeft <= 0) {
+            gameStateModel.status = GameStatus.Lost;
+            return;
+        }
+
+        gameStateModel.status = GameStatus.Playing;
     }
 
     private rebuildBoardGroupsModel(): void {
@@ -104,22 +129,5 @@ export default class GameEntry extends cc.Component {
         this._session.setBoardGroupsModel(
             new BoardGroupsModel(groups, boardModel.getWidth())
         );
-    }
-
-    private findTileById(tileId: number): TileData | null {
-        if (!this._session) {
-            return null;
-        }
-
-        const boardModel = this._session.getBoardModel();
-        let foundTile: TileData | null = null;
-
-        boardModel.forEachTile((tile) => {
-            if (tile !== null && tile.tileId === tileId) {
-                foundTile = tile;
-            }
-        });
-
-        return foundTile;
     }
 }
