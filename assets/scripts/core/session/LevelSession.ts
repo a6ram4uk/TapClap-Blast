@@ -1,44 +1,51 @@
-import { LevelData } from "../data/LevelData";
+import { BoardGroupsModel } from "../groups/BoardGroupsModel";
+import { BoardModel } from "../models/BoardModel";
+import { GameStateModel } from "../models/GameStateModel";
 import { RefillSourceModel } from "./RefillSourceModel";
 
 export class LevelSession {
-    private readonly _levelData: LevelData;
+    private readonly _levelId: string;
+    private readonly _boardModel: BoardModel;
+    private readonly _gameStateModel: GameStateModel;
     private readonly _refillSource: RefillSourceModel;
 
-    constructor(levelData: LevelData, refillSource: RefillSourceModel) {
-        this._levelData = levelData;
-        this._refillSource = refillSource;
-    }
+    private _boardGroupsModel: BoardGroupsModel | null;
 
-    public getLevelData(): LevelData {
-        return this._levelData;
+    constructor(
+        levelId: string,
+        boardModel: BoardModel,
+        gameStateModel: GameStateModel,
+        refillSource: RefillSourceModel,
+        boardGroupsModel: BoardGroupsModel | null = null
+    ) {
+        this._levelId = levelId;
+        this._boardModel = boardModel;
+        this._gameStateModel = gameStateModel;
+        this._refillSource = refillSource;
+        this._boardGroupsModel = boardGroupsModel;
     }
 
     public getLevelId(): string {
-        return this._levelData.id;
+        return this._levelId;
     }
 
-    public getWidth(): number {
-        return this._levelData.width;
+    public getBoardModel(): BoardModel {
+        return this._boardModel;
     }
 
-    public getHeight(): number {
-        return this._levelData.height;
-    }
-
-    public getStartMoves(): number {
-        return this._levelData.moves;
-    }
-
-    public getTargetScore(): number {
-        return this._levelData.targetScore;
-    }
-
-    public getStartCells(): number[] {
-        return this._levelData.cells.slice();
+    public getGameStateModel(): GameStateModel {
+        return this._gameStateModel;
     }
 
     public getRefillSource(): RefillSourceModel {
         return this._refillSource;
+    }
+
+    public getBoardGroupsModel(): BoardGroupsModel | null {
+        return this._boardGroupsModel;
+    }
+
+    public setBoardGroupsModel(boardGroupsModel: BoardGroupsModel): void {
+        this._boardGroupsModel = boardGroupsModel;
     }
 }

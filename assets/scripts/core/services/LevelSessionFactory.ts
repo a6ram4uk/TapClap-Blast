@@ -1,15 +1,38 @@
+import { BoardFactory } from "../board/BoardFactory";
 import { LevelData } from "../data/LevelData";
+import { GameStateModel } from "../models/GameStateModel";
+import { GameStatus } from "../models/GameStatus";
 import { LevelSession } from "../session/LevelSession";
 import { RefillSourceModel } from "../session/RefillSourceModel";
 
 export class LevelSessionFactory {
+    private readonly _boardFactory: BoardFactory;
+
+    constructor() {
+        this._boardFactory = new BoardFactory();
+    }
+
     public createFromLevelData(levelData: LevelData): LevelSession {
         const refillSource = new RefillSourceModel(
             this.buildRefillQueues(levelData.width, levelData.supply),
             levelData.randomTileTypes
         );
 
-        return new LevelSession(levelData, refillSource);
+        const boardModel = this._boardFactory.createInitialBoardFromLevelData(levelData);
+
+        const gameStateModel = new GameStateModel(
+            0,
+            levelData.moves,
+            levelData.targetScore,
+            GameStatus.Playing
+        );
+
+        return new LevelSession(
+            levelData.id,
+            boardModel,
+            gameStateModel,
+            refillSource
+        );
     }
 
     private buildRefillQueues(width: number, visualSupply: number[]): number[][] {

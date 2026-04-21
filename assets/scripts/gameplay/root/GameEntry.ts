@@ -1,13 +1,12 @@
-import { BoardFactory } from "../../core/board/BoardFactory";
 import { BoardGroupsModel } from "../../core/groups/BoardGroupsModel";
 import { GroupFinder } from "../../core/groups/GroupFinder";
-import { BoardModel } from "../../core/models/BoardModel";
 import { TileData } from "../../core/models/TileData";
 import { LevelsCatalogLoader } from "../../core/loaders/LevelsCatalogLoader";
 import { LevelLoader } from "../../core/loaders/LevelLoader";
 import { LevelValidator } from "../../core/services/LevelValidator";
 import { LevelSequenceResolver } from "../../core/services/LevelSequenceResolver";
 import { LevelSessionFactory } from "../../core/services/LevelSessionFactory";
+import { LevelSession } from "../../core/session/LevelSession";
 import BoardView from "../views/BoardView";
 
 const { ccclass, property } = cc._decorator;
@@ -22,11 +21,9 @@ export default class GameEntry extends cc.Component {
     private readonly _levelLoader: LevelLoader = new LevelLoader(this._validator);
     private readonly _levelSequenceResolver: LevelSequenceResolver = new LevelSequenceResolver();
     private readonly _sessionFactory: LevelSessionFactory = new LevelSessionFactory();
-    private readonly _boardFactory: BoardFactory = new BoardFactory();
     private readonly _groupFinder: GroupFinder = new GroupFinder();
 
-    private _boardModel: BoardModel | null = null;
-    private _boardGroupsModel: BoardGroupsModel | null = null;
+    private _session: LevelSession | null = null;
     private _isBusy: boolean = false;
 
     protected async start(): Promise<void> {
@@ -47,18 +44,18 @@ export default class GameEntry extends cc.Component {
         );
 
         const levelData = await this._levelLoader.loadLevel(currentLevelId);
-        const levelSession = this._sessionFactory.createFromLevelData(levelData);
+        this._session = this._sessionFactory.createFromLevelData(levelData);
 
-        this._boardModel = this._boardFactory.createInitialBoard(levelSession);
         this.rebuildBoardGroupsModel();
 
         this.boardView.setTileClickHandler(this.onTileClicked.bind(this));
-        this.boardView.render(this._boardModel);
+        this.boardView.render(this._session.getBoardModel());
 
-        cc.log(`[GameEntry] Loaded level: ${currentLevelId}`);
+        cc.log(`[GameEntry] Loaded level: ${this._session.getLevelId()}`);
 
-        if (this._boardGroupsModel) {
-            const groups = this._boardGroupsModel.getAllGroups();
+        const boardGroupsModel = this._session.getBoardGroupsModel();
+        if (boardGroupsModel) {
+            const groups = boardGroupsModel.getAllGroups();
             cc.log(`[Groups] total groups: ${groups.length}`);
             cc.log("[Groups] sizes:", groups.map(g => g.tiles.length).join(", "));
         }
@@ -69,7 +66,7 @@ export default class GameEntry extends cc.Component {
             return;
         }
 
-        if (!this._boardModel || !this._boardGroupsModel) {
+        if (!this._session) {
             return;
         }
 
@@ -78,7 +75,12 @@ export default class GameEntry extends cc.Component {
             return;
         }
 
-        const group = this._boardGroupsModel.getGroupByTileId(tileId);
+        const boardGroupsModel = this._session.getBoardGroupsModel();
+        if (!boardGroupsModel) {
+            return;
+        }
+
+        const group = boardGroupsModel.getGroupByTileId(tileId);
 
         if (group === null) {
             cc.log(`[Click] invalid tileId=${tileId}`);
@@ -92,25 +94,27 @@ export default class GameEntry extends cc.Component {
     }
 
     private rebuildBoardGroupsModel(): void {
-        if (!this._boardModel) {
+        if (!this._session) {
             return;
         }
 
-        const groups = this._groupFinder.findAllGroups(this._boardModel);
-        this._boardGroupsModel = new BoardGroupsModel(
-            groups,
-            this._boardModel.getWidth()
+        const boardModel = this._session.getBoardModel();
+        const groups = this._groupFinder.findAllGroups(boardModel);
+
+        this._session.setBoardGroupsModel(
+            new BoardGroupsModel(groups, boardModel.getWidth())
         );
     }
 
     private findTileById(tileId: number): TileData | null {
-        if (!this._boardModel) {
+        if (!this._session) {
             return null;
         }
 
+        const boardModel = this._session.getBoardModel();
         let foundTile: TileData | null = null;
 
-        this._boardModel.forEachTile((tile) => {
+        boardModel.forEachTile((tile) => {
             if (tile !== null && tile.tileId === tileId) {
                 foundTile = tile;
             }
