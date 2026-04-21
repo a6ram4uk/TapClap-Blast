@@ -20,9 +20,15 @@ export default class BoardView extends cc.Component {
 
     private readonly _layoutResolver: BoardLayoutResolver = new BoardLayoutResolver();
 
+    private readonly _tileViewsById: Map<number, TileView> = new Map<number, TileView>();
+    private _tileClickHandler: ((tileId: number) => void) | null = null;
+
+    public setTileClickHandler(handler: (tileId: number) => void): void {
+        this._tileClickHandler = handler;
+    }
+
     public render(boardModel: BoardModel): void {
         this.clearBoard();
-
         this.applyLayout(boardModel);
 
         boardModel.forEachTile((tile, x, y) => {
@@ -41,7 +47,25 @@ export default class BoardView extends cc.Component {
 
             const tileView = tileNode.getComponent(TileView);
             tileView.setup(tile);
+            tileView.setClickHandler(this.onTileClickedFromView.bind(this));
+
+            this._tileViewsById.set(tile.tileId, tileView);
         });
+    }
+
+    public playInvalidClick(tileId: number): void {
+        const tileView = this._tileViewsById.get(tileId);
+        if (!tileView) {
+            return;
+        }
+
+        tileView.playInvalidClickFeedback();
+    }
+
+    private onTileClickedFromView(tileId: number): void {
+        if (this._tileClickHandler) {
+            this._tileClickHandler(tileId);
+        }
     }
 
     private applyLayout(boardModel: BoardModel): void {
@@ -61,5 +85,6 @@ export default class BoardView extends cc.Component {
 
     private clearBoard(): void {
         this.boardContent.removeAllChildren();
+        this._tileViewsById.clear();
     }
 }
