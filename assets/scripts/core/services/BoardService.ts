@@ -1,4 +1,5 @@
 import { BoardActionResult } from "../actions/BoardActionResult";
+import { DestroyStep } from "../actions/DestroyStep";
 import { LevelSession } from "../session/LevelSession";
 import { TileType } from "../models/TileType";
 
@@ -36,11 +37,30 @@ export class BoardService {
 
         const groupSize = group.tiles.length;
         const scoreGained = groupSize * BoardService.SCORE_PER_TILE;
+        const destroyStep = new DestroyStep(group.tiles.map(tile => tile.tileId));
 
         return BoardActionResult.validNormalClick(
             tileId,
             groupSize,
-            scoreGained
+            scoreGained,
+            destroyStep
         );
+    }
+
+    public applyDestroyStep(session: LevelSession, destroyStep: DestroyStep): void {
+        const boardModel = session.getBoardModel();
+        const destroySet = new Set<number>(destroyStep.tileIds);
+
+        boardModel.forEachTile((tile, x, y) => {
+            if (tile === null) {
+                return;
+            }
+
+            if (!destroySet.has(tile.tileId)) {
+                return;
+            }
+
+            boardModel.setTile(x, y, null);
+        });
     }
 }

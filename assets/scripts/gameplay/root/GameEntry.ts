@@ -56,12 +56,7 @@ export default class GameEntry extends cc.Component {
 
         cc.log(`[GameEntry] Loaded level: ${this._session.getLevelId()}`);
 
-        const boardGroupsModel = this._session.getBoardGroupsModel();
-        if (boardGroupsModel) {
-            const groups = boardGroupsModel.getAllGroups();
-            cc.log(`[Groups] total groups: ${groups.length}`);
-            cc.log("[Groups] sizes:", groups.map(g => g.tiles.length).join(", "));
-        }
+        this.logGroupsSummary();
     }
 
     private onTileClicked(tileId: number): void {
@@ -82,10 +77,15 @@ export default class GameEntry extends cc.Component {
         }
 
         this.applyActionResult(result);
+        this.applyBoardChanges(result);
+
+        const destroyIds = result.destroyStep ? result.destroyStep.tileIds.join(", ") : "none";
 
         cc.log(
-            `[Click] valid tileId=${tileId}, groupSize=${result.groupSize}, scoreGained=${result.scoreGained}, movesLeft=${this._session.getGameStateModel().movesLeft}, score=${this._session.getGameStateModel().score}, status=${this._session.getGameStateModel().status}`
+            `[Click] valid tileId=${tileId}, groupSize=${result.groupSize}, scoreGained=${result.scoreGained}, destroyIds=[${destroyIds}], movesLeft=${this._session.getGameStateModel().movesLeft}, score=${this._session.getGameStateModel().score}, status=${this._session.getGameStateModel().status}`
         );
+
+        this.logGroupsSummary();
     }
 
     private applyActionResult(result: BoardActionResult): void {
@@ -118,6 +118,23 @@ export default class GameEntry extends cc.Component {
         gameStateModel.status = GameStatus.Playing;
     }
 
+    private applyBoardChanges(result: BoardActionResult): void {
+        if (!this._session) {
+            return;
+        }
+
+        if (!result.isValidAction) {
+            return;
+        }
+
+        if (result.destroyStep) {
+            this._boardService.applyDestroyStep(this._session, result.destroyStep);
+        }
+
+        this.rebuildBoardGroupsModel();
+        this.boardView.render(this._session.getBoardModel());
+    }
+
     private rebuildBoardGroupsModel(): void {
         if (!this._session) {
             return;
@@ -129,5 +146,20 @@ export default class GameEntry extends cc.Component {
         this._session.setBoardGroupsModel(
             new BoardGroupsModel(groups, boardModel.getWidth())
         );
+    }
+
+    private logGroupsSummary(): void {
+        if (!this._session) {
+            return;
+        }
+
+        const boardGroupsModel = this._session.getBoardGroupsModel();
+        if (!boardGroupsModel) {
+            return;
+        }
+
+        const groups = boardGroupsModel.getAllGroups();
+        cc.log(`[Groups] total groups: ${groups.length}`);
+        cc.log("[Groups] sizes:", groups.map(g => g.tiles.length).join(", "));
     }
 }

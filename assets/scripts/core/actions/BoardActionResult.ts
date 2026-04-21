@@ -1,9 +1,12 @@
+import { DestroyStep } from "./DestroyStep";
+
 export class BoardActionResult {
     public readonly isValidAction: boolean;
     public readonly consumedMove: boolean;
     public readonly scoreGained: number;
     public readonly clickedTileId: number;
     public readonly groupSize: number;
+    public readonly destroyStep: DestroyStep | null;
     public readonly steps: unknown[];
 
     constructor(
@@ -12,6 +15,7 @@ export class BoardActionResult {
         scoreGained: number,
         clickedTileId: number,
         groupSize: number,
+        destroyStep: DestroyStep | null,
         steps: unknown[] = []
     ) {
         this.isValidAction = isValidAction;
@@ -19,6 +23,7 @@ export class BoardActionResult {
         this.scoreGained = scoreGained;
         this.clickedTileId = clickedTileId;
         this.groupSize = groupSize;
+        this.destroyStep = destroyStep;
         this.steps = steps;
     }
 
@@ -29,6 +34,7 @@ export class BoardActionResult {
             0,
             clickedTileId,
             0,
+            null,
             []
         );
     }
@@ -36,7 +42,8 @@ export class BoardActionResult {
     public static validNormalClick(
         clickedTileId: number,
         groupSize: number,
-        scoreGained: number
+        scoreGained: number,
+        destroyStep: DestroyStep
     ): BoardActionResult {
         return new BoardActionResult(
             true,
@@ -44,6 +51,7 @@ export class BoardActionResult {
             scoreGained,
             clickedTileId,
             groupSize,
+            destroyStep,
             []
         );
     }
