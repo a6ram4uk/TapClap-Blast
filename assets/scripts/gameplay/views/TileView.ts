@@ -1,10 +1,14 @@
 import { TileData } from "../../core/models/TileData";
 import { TileType } from "../../core/models/TileType";
+import { BoardAnimationConfig } from "../config/BoardAnimationConfig";
 
 const { ccclass, property } = cc._decorator;
 
 @ccclass
 export default class TileView extends cc.Component {
+    @property(cc.Node)
+    public visualRoot: cc.Node = null!;
+
     @property(cc.Sprite)
     public fillSprite: cc.Sprite = null!;
 
@@ -23,12 +27,84 @@ export default class TileView extends cc.Component {
         this._tileId = tile.tileId;
         this.node.name = `Tile_${tile.tileId}_${tile.x}_${tile.y}`;
 
+        this.resetVisualState();
         this.applyVisual(tile);
         this.registerInput();
     }
 
     public setClickHandler(handler: (tileId: number) => void): void {
         this._clickHandler = handler;
+    }
+
+    public setPosition(position: cc.Vec2): void {
+        this.node.setPosition(position);
+    }
+
+    public dispose(): void {
+        this.stopTweens();
+        this.node.off(cc.Node.EventType.TOUCH_END, this.onTouchEnd, this);
+        this.node.removeFromParent();
+        this.node.destroy();
+    }
+
+    public playDestroy(): Promise<void> {
+        this.stopTweens();
+
+        return new Promise(resolve => {
+            cc.tween(this.visualRoot)
+                .to(
+                    BoardAnimationConfig.DESTROY_DURATION,
+                    {
+                        scale: BoardAnimationConfig.DESTROY_SCALE,
+                        opacity: 0,
+                    },
+                    { easing: BoardAnimationConfig.DESTROY_EASING }
+                )
+                .call(() => resolve())
+                .start();
+        });
+    }
+
+    public playSpawn(): Promise<void> {
+        this.stopTweens();
+
+        this.node.opacity = 255;
+        this.node.scale = 1;
+
+        this.visualRoot.opacity = 255;
+        this.visualRoot.scale = BoardAnimationConfig.SPAWN_SCALE_FROM;
+        this.visualRoot.active = true;
+
+        return new Promise(resolve => {
+            cc.tween(this.visualRoot)
+                .to(
+                    BoardAnimationConfig.SPAWN_DURATION_MAIN,
+                    { scale: BoardAnimationConfig.SPAWN_SCALE_TO },
+                    { easing: BoardAnimationConfig.SPAWN_EASING }
+                )
+                .to(
+                    BoardAnimationConfig.SPAWN_DURATION_SETTLE,
+                    { scale: 1 }
+                )
+                .call(() => resolve())
+                .start();
+        });
+    }
+
+    public playMove(target: cc.Vec2): Promise<void> {
+        cc.Tween.stopAllByTarget(this.node);
+        this.node.stopAllActions();
+
+        return new Promise(resolve => {
+            cc.tween(this.node)
+                .to(
+                    BoardAnimationConfig.MOVE_DURATION,
+                    { position: cc.v3(target.x, target.y, 0) },
+                    { easing: BoardAnimationConfig.MOVE_EASING }
+                )
+                .call(() => resolve())
+                .start();
+        });
     }
 
     public playInvalidClickFeedback(): void {
@@ -38,24 +114,50 @@ export default class TileView extends cc.Component {
 
         this._isAnimatingInvalidClick = true;
 
-        this.node.stopAllActions();
+        cc.Tween.stopAllByTarget(this.visualRoot);
+        this.visualRoot.stopAllActions();
 
-        const originalScale = this.node.scale;
+        this.visualRoot.opacity = 255;
 
-        const sequence = cc.sequence(
-            cc.scaleTo(0.06, originalScale * 0.92),
-            cc.scaleTo(0.08, originalScale * 1.04),
-            cc.scaleTo(0.06, originalScale)
-        );
-
-        this.node.runAction(
-            cc.sequence(
-                sequence,
-                cc.callFunc(() => {
-                    this._isAnimatingInvalidClick = false;
-                })
+        cc.tween(this.visualRoot)
+            .to(
+                BoardAnimationConfig.INVALID_DURATION_DOWN,
+                { scale: BoardAnimationConfig.INVALID_SCALE_DOWN }
             )
-        );
+            .to(
+                BoardAnimationConfig.INVALID_DURATION_UP,
+                { scale: BoardAnimationConfig.INVALID_SCALE_UP }
+            )
+            .to(
+                BoardAnimationConfig.INVALID_DURATION_DOWN,
+                { scale: 1 }
+            )
+            .call(() => {
+                this._isAnimatingInvalidClick = false;
+            })
+            .start();
+    }
+
+    private resetVisualState(): void {
+        this.stopTweens();
+
+        this.node.active = true;
+        this.node.opacity = 255;
+        this.node.scale = 1;
+
+        this.visualRoot.active = true;
+        this.visualRoot.opacity = 255;
+        this.visualRoot.scale = 1;
+
+        this._isAnimatingInvalidClick = false;
+    }
+
+    private stopTweens(): void {
+        cc.Tween.stopAllByTarget(this.node);
+        cc.Tween.stopAllByTarget(this.visualRoot);
+
+        this.node.stopAllActions();
+        this.visualRoot.stopAllActions();
     }
 
     private registerInput(): void {

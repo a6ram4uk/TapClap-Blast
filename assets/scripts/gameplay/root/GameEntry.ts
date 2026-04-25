@@ -10,6 +10,7 @@ import { LevelSequenceResolver } from "../../core/services/LevelSequenceResolver
 import { LevelSessionFactory } from "../../core/services/LevelSessionFactory";
 import { LevelSession } from "../../core/session/LevelSession";
 import BoardView from "../views/BoardView";
+import { BoardStepExecutor } from "../execution/BoardStepExecutor";
 
 const { ccclass, property } = cc._decorator;
 
@@ -28,6 +29,7 @@ export default class GameEntry extends cc.Component {
     private readonly _gameOutcomeResolver: GameOutcomeResolver = new GameOutcomeResolver();
 
     private _session: LevelSession | null = null;
+    private _stepExecutor: BoardStepExecutor | null = null;
     private _isBusy: boolean = false;
 
     protected async start(): Promise<void> {
@@ -55,17 +57,23 @@ export default class GameEntry extends cc.Component {
         this.boardView.setTileClickHandler(this.onTileClicked.bind(this));
         this.boardView.render(this._session.getBoardModel());
 
+        // 👉 создаем executor
+        this._stepExecutor = new BoardStepExecutor(
+            this._boardService,
+            this.boardView
+        );
+
         cc.log(`[GameEntry] Loaded level: ${this._session.getLevelId()}`);
 
         this.logGroupsSummary();
     }
 
-    private onTileClicked(tileId: number): void {
+    private async onTileClicked(tileId: number): Promise<void> {
         if (this._isBusy) {
             return;
         }
 
-        if (!this._session) {
+        if (!this._session || !this._stepExecutor) {
             return;
         }
 
@@ -77,8 +85,18 @@ export default class GameEntry extends cc.Component {
             return;
         }
 
+        this._isBusy = true;
+
         this.applyActionResult(result);
-        this.applyBoardChanges(result);
+
+        await this._stepExecutor.execute(this._session, result);
+
+        this.rebuildBoardGroupsModel();
+
+        this._session.getGameStateModel().status =
+            this._gameOutcomeResolver.resolveStatus(this._session);
+
+        this._isBusy = false;
 
         const destroyStepSizes = result.destroySteps.map(step => step.tileIds.length).join(" / ");
         const boosterCreates = result.boosterCreateStep ? result.boosterCreateStep.boosters.length : 0;
@@ -110,39 +128,6 @@ export default class GameEntry extends cc.Component {
         }
 
         gameStateModel.score += result.scoreGained;
-    }
-
-    private applyBoardChanges(result: BoardActionResult): void {
-        if (!this._session) {
-            return;
-        }
-
-        if (!result.isValidAction) {
-            return;
-        }
-
-        for (const destroyStep of result.destroySteps) {
-            this._boardService.applyDestroyStep(this._session, destroyStep);
-        }
-
-        if (result.boosterCreateStep) {
-            this._boardService.applyBoosterCreateStep(this._session, result.boosterCreateStep);
-        }
-
-        if (result.fallStep) {
-            this._boardService.applyFallStep(this._session, result.fallStep);
-        }
-
-        if (result.refillStep) {
-            this._boardService.applyRefillStep(this._session, result.refillStep);
-        }
-
-        this.rebuildBoardGroupsModel();
-
-        this._session.getGameStateModel().status =
-            this._gameOutcomeResolver.resolveStatus(this._session);
-
-        this.boardView.render(this._session.getBoardModel());
     }
 
     private rebuildBoardGroupsModel(): void {
