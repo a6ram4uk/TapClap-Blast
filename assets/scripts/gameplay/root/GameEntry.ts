@@ -1,7 +1,6 @@
 import { BoardActionResult } from "../../core/actions/BoardActionResult";
 import { BoardGroupsModel } from "../../core/groups/BoardGroupsModel";
 import { GroupFinder } from "../../core/groups/GroupFinder";
-import { GameStatus } from "../../core/models/GameStatus";
 import { LevelsCatalogLoader } from "../../core/loaders/LevelsCatalogLoader";
 import { LevelLoader } from "../../core/loaders/LevelLoader";
 import { BoardService } from "../../core/services/BoardService";
@@ -82,13 +81,14 @@ export default class GameEntry extends cc.Component {
         this.applyBoardChanges(result);
 
         const destroyIds = result.destroyStep ? result.destroyStep.tileIds.join(", ") : "none";
+        const boosterCreates = result.boosterCreateStep ? result.boosterCreateStep.boosters.length : 0;
         const fallMoves = result.fallStep ? result.fallStep.moves.length : 0;
         const refillSpawns = result.refillStep ? result.refillStep.spawns.length : 0;
 
         const gameState = this._session.getGameStateModel();
 
         cc.log(
-            `[Click] valid tileId=${tileId}, groupSize=${result.groupSize}, scoreGained=${result.scoreGained}, destroyIds=[${destroyIds}], fallMoves=${fallMoves}, refillSpawns=${refillSpawns}, movesLeft=${gameState.movesLeft}, score=${gameState.score}, status=${gameState.status}`
+            `[Click] valid tileId=${tileId}, groupSize=${result.groupSize}, scoreGained=${result.scoreGained}, destroyIds=[${destroyIds}], boosterCreates=${boosterCreates}, fallMoves=${fallMoves}, refillSpawns=${refillSpawns}, movesLeft=${gameState.movesLeft}, score=${gameState.score}, status=${gameState.status}`
         );
 
         this.logGroupsSummary();
@@ -110,11 +110,6 @@ export default class GameEntry extends cc.Component {
         }
 
         gameStateModel.score += result.scoreGained;
-
-        // ВАЖНО:
-        // статус теперь НЕ считаем здесь
-        // только временно ставим Playing
-        gameStateModel.status = GameStatus.Playing;
     }
 
     private applyBoardChanges(result: BoardActionResult): void {
@@ -130,6 +125,10 @@ export default class GameEntry extends cc.Component {
             this._boardService.applyDestroyStep(this._session, result.destroyStep);
         }
 
+        if (result.boosterCreateStep) {
+            this._boardService.applyBoosterCreateStep(this._session, result.boosterCreateStep);
+        }
+
         if (result.fallStep) {
             this._boardService.applyFallStep(this._session, result.fallStep);
         }
@@ -140,7 +139,6 @@ export default class GameEntry extends cc.Component {
 
         this.rebuildBoardGroupsModel();
 
-        // 👉 ВСЕ проверки только после стабилизации доски
         this._session.getGameStateModel().status =
             this._gameOutcomeResolver.resolveStatus(this._session);
 

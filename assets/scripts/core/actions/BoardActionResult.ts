@@ -1,3 +1,4 @@
+import { BoosterCreateStep } from "./BoosterCreateStep";
 import { DestroyStep } from "./DestroyStep";
 import { FallStep } from "./FallStep";
 import { RefillStep } from "./RefillStep";
@@ -9,6 +10,7 @@ export class BoardActionResult {
     public readonly clickedTileId: number;
     public readonly groupSize: number;
     public readonly destroyStep: DestroyStep | null;
+    public readonly boosterCreateStep: BoosterCreateStep | null;
     public readonly fallStep: FallStep | null;
     public readonly refillStep: RefillStep | null;
     public readonly steps: unknown[];
@@ -20,6 +22,7 @@ export class BoardActionResult {
         clickedTileId: number,
         groupSize: number,
         destroyStep: DestroyStep | null,
+        boosterCreateStep: BoosterCreateStep | null,
         fallStep: FallStep | null,
         refillStep: RefillStep | null,
         steps: unknown[] = []
@@ -30,6 +33,7 @@ export class BoardActionResult {
         this.clickedTileId = clickedTileId;
         this.groupSize = groupSize;
         this.destroyStep = destroyStep;
+        this.boosterCreateStep = boosterCreateStep;
         this.fallStep = fallStep;
         this.refillStep = refillStep;
         this.steps = steps;
@@ -45,6 +49,7 @@ export class BoardActionResult {
             null,
             null,
             null,
+            null,
             []
         );
     }
@@ -54,6 +59,7 @@ export class BoardActionResult {
         groupSize: number,
         scoreGained: number,
         destroyStep: DestroyStep,
+        boosterCreateStep: BoosterCreateStep | null,
         fallStep: FallStep | null,
         refillStep: RefillStep | null
     ): BoardActionResult {
@@ -64,6 +70,7 @@ export class BoardActionResult {
             clickedTileId,
             groupSize,
             destroyStep,
+            boosterCreateStep,
             fallStep,
             refillStep,
             []

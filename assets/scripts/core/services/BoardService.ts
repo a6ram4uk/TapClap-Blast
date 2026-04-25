@@ -1,4 +1,5 @@
 import { BoardActionResult } from "../actions/BoardActionResult";
+import { BoosterCreateStep } from "../actions/BoosterCreateStep";
 import { DestroyStep } from "../actions/DestroyStep";
 import { FallMove, FallStep } from "../actions/FallStep";
 import { RefillStep } from "../actions/RefillStep";
@@ -6,15 +7,30 @@ import { TileData } from "../models/TileData";
 import { TileType } from "../models/TileType";
 import { LevelSession } from "../session/LevelSession";
 import { RandomProvider } from "../utils/RandomProvider";
+import { BoosterCreateResolver } from "./BoosterCreateResolver";
 import { RefillTileFactory } from "./RefillTileFactory";
+import { TileIdProvider } from "./TileIdProvider";
+
+interface VirtualTilePosition {
+    tileId: number;
+    x: number;
+    y: number;
+}
 
 export class BoardService {
     private static readonly SCORE_PER_TILE: number = 10;
 
+    private readonly _tileIdProvider: TileIdProvider;
     private readonly _refillTileFactory: RefillTileFactory;
+    private readonly _boosterCreateResolver: BoosterCreateResolver;
 
     constructor() {
-        this._refillTileFactory = new RefillTileFactory(new RandomProvider());
+        this._tileIdProvider = new TileIdProvider();
+        this._refillTileFactory = new RefillTileFactory(
+            new RandomProvider(),
+            this._tileIdProvider
+        );
+        this._boosterCreateResolver = new BoosterCreateResolver();
     }
 
     public resolveNormalClick(session: LevelSession, tileId: number): BoardActionResult {
@@ -25,19 +41,21 @@ export class BoardService {
             return BoardActionResult.invalid(tileId);
         }
 
-        let clickedTileType: TileType | null = null;
+        this._tileIdProvider.syncFromBoard(boardModel);
+
+        let clickedTile: TileData | null = null;
 
         boardModel.forEachTile((tile) => {
             if (tile !== null && tile.tileId === tileId) {
-                clickedTileType = tile.type;
+                clickedTile = tile;
             }
         });
 
-        if (clickedTileType === null) {
+        if (clickedTile === null) {
             return BoardActionResult.invalid(tileId);
         }
 
-        if (clickedTileType !== TileType.Normal) {
+        if (clickedTile.type !== TileType.Normal) {
             return BoardActionResult.invalid(tileId);
         }
 
@@ -49,14 +67,32 @@ export class BoardService {
         const groupSize = group.tiles.length;
         const scoreGained = groupSize * BoardService.SCORE_PER_TILE;
         const destroyStep = new DestroyStep(group.tiles.map(tile => tile.tileId));
-        const fallStep = this.buildFallStepAfterDestroy(session, destroyStep);
-        const refillStep = this.buildRefillStepAfterDestroyAndFall(session, destroyStep, fallStep);
+
+        const boosterCreateStep = this._boosterCreateResolver.resolveFromNormalGroup(
+            clickedTile,
+            group.tiles,
+            this._tileIdProvider
+        );
+
+        const fallStep = this.buildFallStepAfterDestroyAndBooster(
+            session,
+            destroyStep,
+            boosterCreateStep
+        );
+
+        const refillStep = this.buildRefillStepAfterDestroyBoosterAndFall(
+            session,
+            destroyStep,
+            boosterCreateStep,
+            fallStep
+        );
 
         return BoardActionResult.validNormalClick(
             tileId,
             groupSize,
             scoreGained,
             destroyStep,
+            boosterCreateStep,
             fallStep,
             refillStep
         );
@@ -77,6 +113,22 @@ export class BoardService {
 
             boardModel.setTile(x, y, null);
         });
+    }
+
+    public applyBoosterCreateStep(session: LevelSession, boosterCreateStep: BoosterCreateStep): void {
+        const boardModel = session.getBoardModel();
+
+        for (const booster of boosterCreateStep.boosters) {
+            const tile = new TileData(
+                booster.tileId,
+                booster.x,
+                booster.y,
+                booster.type,
+                booster.color
+            );
+
+            boardModel.setTile(booster.x, booster.y, tile);
+        }
     }
 
     public applyFallStep(session: LevelSession, fallStep: FallStep): void {
@@ -110,16 +162,21 @@ export class BoardService {
         }
     }
 
-    private buildFallStepAfterDestroy(session: LevelSession, destroyStep: DestroyStep): FallStep | null {
+    private buildFallStepAfterDestroyAndBooster(
+        session: LevelSession,
+        destroyStep: DestroyStep,
+        boosterCreateStep: BoosterCreateStep | null
+    ): FallStep | null {
         const boardModel = session.getBoardModel();
         const width = boardModel.getWidth();
         const height = boardModel.getHeight();
         const destroySet = new Set<number>(destroyStep.tileIds);
 
+        const boosterPositions = this.getBoosterVirtualPositions(boosterCreateStep);
         const allMoves: FallMove[] = [];
 
         for (let x = 0; x < width; x++) {
-            const survivors: TileData[] = [];
+            const survivors: VirtualTilePosition[] = [];
 
             for (let y = 0; y < height; y++) {
                 const tile = boardModel.getTile(x, y);
@@ -132,20 +189,32 @@ export class BoardService {
                     continue;
                 }
 
-                survivors.push(tile);
+                survivors.push({
+                    tileId: tile.tileId,
+                    x: tile.x,
+                    y: tile.y,
+                });
             }
 
-            for (let targetY = 0; targetY < survivors.length; targetY++) {
-                const tile = survivors[targetY];
+            for (const booster of boosterPositions) {
+                if (booster.x === x) {
+                    survivors.push(booster);
+                }
+            }
 
-                if (tile.y === targetY) {
+            survivors.sort((a, b) => a.y - b.y);
+
+            for (let targetY = 0; targetY < survivors.length; targetY++) {
+                const virtualTile = survivors[targetY];
+
+                if (virtualTile.y === targetY) {
                     continue;
                 }
 
                 allMoves.push({
-                    tileId: tile.tileId,
-                    fromX: tile.x,
-                    fromY: tile.y,
+                    tileId: virtualTile.tileId,
+                    fromX: virtualTile.x,
+                    fromY: virtualTile.y,
                     toX: x,
                     toY: targetY,
                 });
@@ -159,9 +228,10 @@ export class BoardService {
         return new FallStep(allMoves);
     }
 
-    private buildRefillStepAfterDestroyAndFall(
+    private buildRefillStepAfterDestroyBoosterAndFall(
         session: LevelSession,
         destroyStep: DestroyStep,
+        boosterCreateStep: BoosterCreateStep | null,
         fallStep: FallStep | null
     ): RefillStep | null {
         const boardModel = session.getBoardModel();
@@ -172,7 +242,6 @@ export class BoardService {
         const destroySet = new Set<number>(destroyStep.tileIds);
         const finalOccupied = new Set<number>();
 
-        // 1. Сначала все существующие тайлы, которые не уничтожаются
         boardModel.forEachTile((tile, x, y) => {
             if (tile === null) {
                 return;
@@ -185,21 +254,18 @@ export class BoardService {
             finalOccupied.add(boardModel.toIndex(x, y));
         });
 
-        // 2. Потом переносим занятые клетки по FallStep в их итоговые позиции
+        if (boosterCreateStep !== null) {
+            for (const booster of boosterCreateStep.boosters) {
+                finalOccupied.add(boardModel.toIndex(booster.x, booster.y));
+            }
+        }
+
         if (fallStep !== null) {
             for (const move of fallStep.moves) {
                 finalOccupied.delete(boardModel.toIndex(move.fromX, move.fromY));
                 finalOccupied.add(boardModel.toIndex(move.toX, move.toY));
             }
         }
-
-        const existingTileIds: number[] = [];
-        boardModel.forEachTile((tile) => {
-            if (tile !== null) {
-                existingTileIds.push(tile.tileId);
-            }
-        });
-        this._refillTileFactory.syncNextTileIdFromBoard(existingTileIds);
 
         const spawns = [];
 
@@ -222,5 +288,17 @@ export class BoardService {
         }
 
         return new RefillStep(spawns);
+    }
+
+    private getBoosterVirtualPositions(boosterCreateStep: BoosterCreateStep | null): VirtualTilePosition[] {
+        if (boosterCreateStep === null) {
+            return [];
+        }
+
+        return boosterCreateStep.boosters.map(booster => ({
+            tileId: booster.tileId,
+            x: booster.x,
+            y: booster.y,
+        }));
     }
 }
