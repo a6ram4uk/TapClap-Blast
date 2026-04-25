@@ -16,7 +16,9 @@ export class BlastChainResolver {
         boardModel: BoardModel
     ): DestroyStep[] {
         const destroySteps: DestroyStep[] = [];
+
         const destroyedTileIds = new Set<number>();
+        const activatedBoosterIds = new Set<number>();
 
         let currentWave = this.dedupeAndSortBoosters(initialBoosters);
 
@@ -25,60 +27,66 @@ export class BlastChainResolver {
                 currentWave.map(tile => tile.tileId)
             );
 
-            const affectedTiles = new Map<number, TileData>();
+            const currentWaveDestroyedTiles = new Map<number, TileData>();
+            const nextWaveBoosters = new Map<number, TileData>();
 
             for (const booster of currentWave) {
-                if (destroyedTileIds.has(booster.tileId)) {
+                if (activatedBoosterIds.has(booster.tileId)) {
                     continue;
                 }
 
-                const affectedByBooster = this._boosterActivationResolver.resolveAffectedTiles(
+                activatedBoosterIds.add(booster.tileId);
+
+                const affectedTiles = this._boosterActivationResolver.resolveAffectedTiles(
                     booster,
                     boardModel
                 );
 
-                for (const affectedTile of affectedByBooster) {
+                for (const affectedTile of affectedTiles) {
                     if (destroyedTileIds.has(affectedTile.tileId)) {
                         continue;
                     }
 
-                    if (!affectedTiles.has(affectedTile.tileId)) {
-                        affectedTiles.set(affectedTile.tileId, affectedTile);
+                    const isBooster = affectedTile.type !== TileType.Normal;
+                    const isCurrentWaveBooster = currentWaveBoosterIds.has(affectedTile.tileId);
+
+                    if (isBooster && !isCurrentWaveBooster) {
+                        if (!activatedBoosterIds.has(affectedTile.tileId)) {
+                            nextWaveBoosters.set(affectedTile.tileId, affectedTile);
+                        }
+
+                        continue;
+                    }
+
+                    if (!currentWaveDestroyedTiles.has(affectedTile.tileId)) {
+                        currentWaveDestroyedTiles.set(affectedTile.tileId, affectedTile);
                     }
                 }
             }
 
-            if (affectedTiles.size === 0) {
-                break;
+            if (currentWaveDestroyedTiles.size > 0) {
+                const destroyedTiles = Array.from(currentWaveDestroyedTiles.values());
+
+                destroyedTiles.sort((a, b) => {
+                    if (a.y !== b.y) {
+                        return a.y - b.y;
+                    }
+
+                    return a.x - b.x;
+                });
+
+                destroySteps.push(
+                    new DestroyStep(destroyedTiles.map(tile => tile.tileId))
+                );
+
+                for (const tile of destroyedTiles) {
+                    destroyedTileIds.add(tile.tileId);
+                }
             }
 
-            const affectedList = Array.from(affectedTiles.values());
-            affectedList.sort((a, b) => {
-                if (a.y !== b.y) {
-                    return a.y - b.y;
-                }
-
-                return a.x - b.x;
-            });
-
-            destroySteps.push(
-                new DestroyStep(affectedList.map(tile => tile.tileId))
+            currentWave = this.dedupeAndSortBoosters(
+                Array.from(nextWaveBoosters.values())
             );
-
-            const nextWaveById = new Map<number, TileData>();
-
-            for (const tile of affectedList) {
-                const isBooster = tile.type !== TileType.Normal;
-                const isCurrentWaveBooster = currentWaveBoosterIds.has(tile.tileId);
-
-                if (isBooster && !isCurrentWaveBooster && !destroyedTileIds.has(tile.tileId)) {
-                    nextWaveById.set(tile.tileId, tile);
-                }
-
-                destroyedTileIds.add(tile.tileId);
-            }
-
-            currentWave = this.dedupeAndSortBoosters(Array.from(nextWaveById.values()));
         }
 
         return destroySteps;
