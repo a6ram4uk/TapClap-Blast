@@ -3,14 +3,16 @@ import { BoardGroupsModel } from "../../core/groups/BoardGroupsModel";
 import { GroupFinder } from "../../core/groups/GroupFinder";
 import { LevelsCatalogLoader } from "../../core/loaders/LevelsCatalogLoader";
 import { LevelLoader } from "../../core/loaders/LevelLoader";
+import { GameStatus } from "../../core/models/GameStatus";
 import { BoardService } from "../../core/services/BoardService";
 import { GameOutcomeResolver } from "../../core/services/GameOutcomeResolver";
 import { LevelValidator } from "../../core/services/LevelValidator";
 import { LevelSequenceResolver } from "../../core/services/LevelSequenceResolver";
 import { LevelSessionFactory } from "../../core/services/LevelSessionFactory";
 import { LevelSession } from "../../core/session/LevelSession";
-import BoardView from "../views/BoardView";
 import { BoardStepExecutor } from "../execution/BoardStepExecutor";
+import BoardView from "../views/BoardView";
+import GameResultView from "../views/GameResultView";
 
 const { ccclass, property } = cc._decorator;
 
@@ -18,6 +20,9 @@ const { ccclass, property } = cc._decorator;
 export default class GameEntry extends cc.Component {
     @property(BoardView)
     public boardView: BoardView = null!;
+
+    @property(GameResultView)
+    public gameResultView: GameResultView = null!;
 
     private readonly _validator: LevelValidator = new LevelValidator();
     private readonly _catalogLoader: LevelsCatalogLoader = new LevelsCatalogLoader(this._validator);
@@ -31,6 +36,7 @@ export default class GameEntry extends cc.Component {
     private _session: LevelSession | null = null;
     private _stepExecutor: BoardStepExecutor | null = null;
     private _isBusy: boolean = false;
+    private _isLevelFinished: boolean = false;
 
     protected async start(): Promise<void> {
         try {
@@ -41,6 +47,13 @@ export default class GameEntry extends cc.Component {
     }
 
     private async bootstrap(): Promise<void> {
+        this._isBusy = false;
+        this._isLevelFinished = false;
+
+        if (this.gameResultView) {
+            this.gameResultView.hide();
+        }
+
         const completedLevelsCount = 0;
 
         const catalog = await this._catalogLoader.loadCatalog();
@@ -57,7 +70,6 @@ export default class GameEntry extends cc.Component {
         this.boardView.setTileClickHandler(this.onTileClicked.bind(this));
         this.boardView.render(this._session.getBoardModel());
 
-        // 👉 создаем executor
         this._stepExecutor = new BoardStepExecutor(
             this._boardService,
             this.boardView
@@ -66,14 +78,19 @@ export default class GameEntry extends cc.Component {
         cc.log(`[GameEntry] Loaded level: ${this._session.getLevelId()}`);
 
         this.logGroupsSummary();
+        this.resolveAndHandleGameStatus();
     }
 
     private async onTileClicked(tileId: number): Promise<void> {
-        if (this._isBusy) {
+        if (this._isBusy || this._isLevelFinished) {
             return;
         }
 
         if (!this._session || !this._stepExecutor) {
+            return;
+        }
+
+        if (this._session.getGameStateModel().status !== GameStatus.Playing) {
             return;
         }
 
@@ -87,29 +104,21 @@ export default class GameEntry extends cc.Component {
 
         this._isBusy = true;
 
-        this.applyActionResult(result);
+        try {
+            this.applyActionResult(result);
 
-        await this._stepExecutor.execute(this._session, result);
+            await this._stepExecutor.execute(this._session, result);
 
-        this.rebuildBoardGroupsModel();
+            this.rebuildBoardGroupsModel();
+            this.resolveAndHandleGameStatus();
 
-        this._session.getGameStateModel().status =
-            this._gameOutcomeResolver.resolveStatus(this._session);
-
-        this._isBusy = false;
-
-        const destroyStepSizes = result.destroySteps.map(step => step.tileIds.length).join(" / ");
-        const boosterCreates = result.boosterCreateStep ? result.boosterCreateStep.boosters.length : 0;
-        const fallMoves = result.fallStep ? result.fallStep.moves.length : 0;
-        const refillSpawns = result.refillStep ? result.refillStep.spawns.length : 0;
-
-        const gameState = this._session.getGameStateModel();
-
-        cc.log(
-            `[Click] valid tileId=${tileId}, groupSize=${result.groupSize}, scoreGained=${result.scoreGained}, destroyWaves=[${destroyStepSizes}], boosterCreates=${boosterCreates}, fallMoves=${fallMoves}, refillSpawns=${refillSpawns}, movesLeft=${gameState.movesLeft}, score=${gameState.score}, status=${gameState.status}`
-        );
-
-        this.logGroupsSummary();
+            this.logActionResult(tileId, result);
+            this.logGroupsSummary();
+        } catch (error) {
+            cc.error("[GameEntry] Failed to resolve click:", error);
+        } finally {
+            this._isBusy = false;
+        }
     }
 
     private applyActionResult(result: BoardActionResult): void {
@@ -130,6 +139,43 @@ export default class GameEntry extends cc.Component {
         gameStateModel.score += result.scoreGained;
     }
 
+    private resolveAndHandleGameStatus(): void {
+        if (!this._session) {
+            return;
+        }
+
+        const gameState = this._session.getGameStateModel();
+        gameState.status = this._gameOutcomeResolver.resolveStatus(this._session);
+
+        if (gameState.status === GameStatus.Playing) {
+            return;
+        }
+
+        this.handleLevelFinished(gameState.status);
+    }
+
+    private handleLevelFinished(status: GameStatus): void {
+        if (!this._session) {
+            return;
+        }
+
+        if (this._isLevelFinished) {
+            return;
+        }
+
+        this._isLevelFinished = true;
+
+        const gameState = this._session.getGameStateModel();
+
+        cc.log(
+            `[GameEntry] Level finished. status=${status}, score=${gameState.score}, target=${gameState.targetScore}, movesLeft=${gameState.movesLeft}`
+        );
+
+        if (this.gameResultView) {
+            this.gameResultView.show(status, gameState);
+        }
+    }
+
     private rebuildBoardGroupsModel(): void {
         if (!this._session) {
             return;
@@ -140,6 +186,29 @@ export default class GameEntry extends cc.Component {
 
         this._session.setBoardGroupsModel(
             new BoardGroupsModel(groups, boardModel.getWidth())
+        );
+    }
+
+    private logActionResult(tileId: number, result: BoardActionResult): void {
+        if (!this._session) {
+            return;
+        }
+
+        const destroyStepSizes = result.destroySteps
+            .map(step => step.tileIds.length)
+            .join(" / ");
+
+        const boosterCreates = result.boosterCreateStep
+            ? result.boosterCreateStep.boosters.length
+            : 0;
+
+        const fallMoves = result.fallStep ? result.fallStep.moves.length : 0;
+        const refillSpawns = result.refillStep ? result.refillStep.spawns.length : 0;
+
+        const gameState = this._session.getGameStateModel();
+
+        cc.log(
+            `[Click] valid tileId=${tileId}, groupSize=${result.groupSize}, scoreGained=${result.scoreGained}, destroyWaves=[${destroyStepSizes}], boosterCreates=${boosterCreates}, fallMoves=${fallMoves}, refillSpawns=${refillSpawns}, movesLeft=${gameState.movesLeft}, score=${gameState.score}, status=${gameState.status}`
         );
     }
 
