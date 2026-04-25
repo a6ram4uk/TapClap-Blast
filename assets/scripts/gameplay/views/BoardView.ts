@@ -7,6 +7,7 @@ import { TileType } from "../../core/models/TileType";
 import { BoardLayoutResolver } from "../board/BoardLayoutResolver";
 import { BoardAnimationConfig } from "../config/BoardAnimationConfig";
 import TileView from "./TileView";
+import TileSpriteProvider from "./TileSpriteProvider";
 
 const { ccclass, property } = cc._decorator;
 
@@ -17,6 +18,9 @@ export default class BoardView extends cc.Component {
 
     @property(cc.Node)
     public boardContent: cc.Node = null!;
+
+    @property(TileSpriteProvider)
+    public spriteProvider: TileSpriteProvider = null!;
 
     @property(cc.Prefab)
     public tilePrefab: cc.Prefab = null!;
@@ -167,9 +171,10 @@ export default class BoardView extends cc.Component {
         }
 
         const tileView = this.createTileView();
+        const spriteFrame = this.getTileSprite(tile.type, tile.color);
 
         tileView.node.setPosition(this.getLocalPosition(x, y));
-        tileView.setup(tile);
+        tileView.setup(tile, spriteFrame);
         tileView.setClickHandler(this.onTileClickedFromView.bind(this));
 
         this._tileViewsById.set(tile.tileId, tileView);
@@ -250,5 +255,30 @@ export default class BoardView extends cc.Component {
 
         this._tileViewsById.clear();
         this.boardContent.removeAllChildren();
+    }
+
+    private getTileSprite(tileType: TileType, color: number | null): cc.SpriteFrame {
+        switch (tileType) {
+            case TileType.Normal:
+                if (color === null || color <= 0 || color > this.spriteProvider.normalTiles.length) {
+                    throw new Error(`[BoardView] Invalid color: ${color}`);
+                }
+                return this.spriteProvider.normalTiles[color - 1];
+
+            case TileType.RocketHorizontal:
+                return this.spriteProvider.rocketHorizontal;
+
+            case TileType.RocketVertical:
+                return this.spriteProvider.rocketVertical;
+
+            case TileType.Bomb:
+                return this.spriteProvider.bomb;
+
+            case TileType.Disco:
+                return this.spriteProvider.disco;
+
+            default:
+                throw new Error(`[BoardView] Unknown tile type: ${tileType}`);
+        }
     }
 }
