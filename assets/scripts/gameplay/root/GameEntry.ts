@@ -5,6 +5,7 @@ import { GameStatus } from "../../core/models/GameStatus";
 import { LevelsCatalogLoader } from "../../core/loaders/LevelsCatalogLoader";
 import { LevelLoader } from "../../core/loaders/LevelLoader";
 import { BoardService } from "../../core/services/BoardService";
+import { GameOutcomeResolver } from "../../core/services/GameOutcomeResolver";
 import { LevelValidator } from "../../core/services/LevelValidator";
 import { LevelSequenceResolver } from "../../core/services/LevelSequenceResolver";
 import { LevelSessionFactory } from "../../core/services/LevelSessionFactory";
@@ -25,6 +26,7 @@ export default class GameEntry extends cc.Component {
     private readonly _sessionFactory: LevelSessionFactory = new LevelSessionFactory();
     private readonly _groupFinder: GroupFinder = new GroupFinder();
     private readonly _boardService: BoardService = new BoardService();
+    private readonly _gameOutcomeResolver: GameOutcomeResolver = new GameOutcomeResolver();
 
     private _session: LevelSession | null = null;
     private _isBusy: boolean = false;
@@ -83,8 +85,10 @@ export default class GameEntry extends cc.Component {
         const fallMoves = result.fallStep ? result.fallStep.moves.length : 0;
         const refillSpawns = result.refillStep ? result.refillStep.spawns.length : 0;
 
+        const gameState = this._session.getGameStateModel();
+
         cc.log(
-            `[Click] valid tileId=${tileId}, groupSize=${result.groupSize}, scoreGained=${result.scoreGained}, destroyIds=[${destroyIds}], fallMoves=${fallMoves}, refillSpawns=${refillSpawns}, movesLeft=${this._session.getGameStateModel().movesLeft}, score=${this._session.getGameStateModel().score}, status=${this._session.getGameStateModel().status}`
+            `[Click] valid tileId=${tileId}, groupSize=${result.groupSize}, scoreGained=${result.scoreGained}, destroyIds=[${destroyIds}], fallMoves=${fallMoves}, refillSpawns=${refillSpawns}, movesLeft=${gameState.movesLeft}, score=${gameState.score}, status=${gameState.status}`
         );
 
         this.logGroupsSummary();
@@ -107,16 +111,9 @@ export default class GameEntry extends cc.Component {
 
         gameStateModel.score += result.scoreGained;
 
-        if (gameStateModel.score >= gameStateModel.targetScore) {
-            gameStateModel.status = GameStatus.Won;
-            return;
-        }
-
-        if (gameStateModel.movesLeft <= 0) {
-            gameStateModel.status = GameStatus.Lost;
-            return;
-        }
-
+        // ВАЖНО:
+        // статус теперь НЕ считаем здесь
+        // только временно ставим Playing
         gameStateModel.status = GameStatus.Playing;
     }
 
@@ -142,6 +139,11 @@ export default class GameEntry extends cc.Component {
         }
 
         this.rebuildBoardGroupsModel();
+
+        // 👉 ВСЕ проверки только после стабилизации доски
+        this._session.getGameStateModel().status =
+            this._gameOutcomeResolver.resolveStatus(this._session);
+
         this.boardView.render(this._session.getBoardModel());
     }
 
