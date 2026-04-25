@@ -9,7 +9,7 @@ export class BoardActionResult {
     public readonly scoreGained: number;
     public readonly clickedTileId: number;
     public readonly groupSize: number;
-    public readonly destroyStep: DestroyStep | null;
+    public readonly destroySteps: DestroyStep[];
     public readonly boosterCreateStep: BoosterCreateStep | null;
     public readonly fallStep: FallStep | null;
     public readonly refillStep: RefillStep | null;
@@ -21,7 +21,7 @@ export class BoardActionResult {
         scoreGained: number,
         clickedTileId: number,
         groupSize: number,
-        destroyStep: DestroyStep | null,
+        destroySteps: DestroyStep[],
         boosterCreateStep: BoosterCreateStep | null,
         fallStep: FallStep | null,
         refillStep: RefillStep | null,
@@ -32,7 +32,7 @@ export class BoardActionResult {
         this.scoreGained = scoreGained;
         this.clickedTileId = clickedTileId;
         this.groupSize = groupSize;
-        this.destroyStep = destroyStep;
+        this.destroySteps = destroySteps.slice();
         this.boosterCreateStep = boosterCreateStep;
         this.fallStep = fallStep;
         this.refillStep = refillStep;
@@ -46,7 +46,7 @@ export class BoardActionResult {
             0,
             clickedTileId,
             0,
-            null,
+            [],
             null,
             null,
             null,
@@ -69,8 +69,29 @@ export class BoardActionResult {
             scoreGained,
             clickedTileId,
             groupSize,
-            destroyStep,
+            [destroyStep],
             boosterCreateStep,
+            fallStep,
+            refillStep,
+            []
+        );
+    }
+
+    public static validBoosterClick(
+        clickedTileId: number,
+        scoreGained: number,
+        destroySteps: DestroyStep[],
+        fallStep: FallStep | null,
+        refillStep: RefillStep | null
+    ): BoardActionResult {
+        return new BoardActionResult(
+            true,
+            true,
+            scoreGained,
+            clickedTileId,
+            0,
+            destroySteps,
+            null,
             fallStep,
             refillStep,
             []

@@ -69,7 +69,7 @@ export default class GameEntry extends cc.Component {
             return;
         }
 
-        const result = this._boardService.resolveNormalClick(this._session, tileId);
+        const result = this._boardService.resolveClick(this._session, tileId);
 
         if (!result.isValidAction) {
             cc.log(`[Click] invalid tileId=${tileId}`);
@@ -80,7 +80,7 @@ export default class GameEntry extends cc.Component {
         this.applyActionResult(result);
         this.applyBoardChanges(result);
 
-        const destroyIds = result.destroyStep ? result.destroyStep.tileIds.join(", ") : "none";
+        const destroyStepSizes = result.destroySteps.map(step => step.tileIds.length).join(" / ");
         const boosterCreates = result.boosterCreateStep ? result.boosterCreateStep.boosters.length : 0;
         const fallMoves = result.fallStep ? result.fallStep.moves.length : 0;
         const refillSpawns = result.refillStep ? result.refillStep.spawns.length : 0;
@@ -88,7 +88,7 @@ export default class GameEntry extends cc.Component {
         const gameState = this._session.getGameStateModel();
 
         cc.log(
-            `[Click] valid tileId=${tileId}, groupSize=${result.groupSize}, scoreGained=${result.scoreGained}, destroyIds=[${destroyIds}], boosterCreates=${boosterCreates}, fallMoves=${fallMoves}, refillSpawns=${refillSpawns}, movesLeft=${gameState.movesLeft}, score=${gameState.score}, status=${gameState.status}`
+            `[Click] valid tileId=${tileId}, groupSize=${result.groupSize}, scoreGained=${result.scoreGained}, destroyWaves=[${destroyStepSizes}], boosterCreates=${boosterCreates}, fallMoves=${fallMoves}, refillSpawns=${refillSpawns}, movesLeft=${gameState.movesLeft}, score=${gameState.score}, status=${gameState.status}`
         );
 
         this.logGroupsSummary();
@@ -121,8 +121,8 @@ export default class GameEntry extends cc.Component {
             return;
         }
 
-        if (result.destroyStep) {
-            this._boardService.applyDestroyStep(this._session, result.destroyStep);
+        for (const destroyStep of result.destroySteps) {
+            this._boardService.applyDestroyStep(this._session, destroyStep);
         }
 
         if (result.boosterCreateStep) {

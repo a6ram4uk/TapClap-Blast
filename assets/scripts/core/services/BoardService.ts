@@ -7,6 +7,8 @@ import { TileData } from "../models/TileData";
 import { TileType } from "../models/TileType";
 import { LevelSession } from "../session/LevelSession";
 import { RandomProvider } from "../utils/RandomProvider";
+import { BlastChainResolver } from "./BlastChainResolver";
+import { BoosterActivationResolver } from "./BoosterActivationResolver";
 import { BoosterCreateResolver } from "./BoosterCreateResolver";
 import { RefillTileFactory } from "./RefillTileFactory";
 import { TileIdProvider } from "./TileIdProvider";
@@ -23,6 +25,7 @@ export class BoardService {
     private readonly _tileIdProvider: TileIdProvider;
     private readonly _refillTileFactory: RefillTileFactory;
     private readonly _boosterCreateResolver: BoosterCreateResolver;
+    private readonly _blastChainResolver: BlastChainResolver;
 
     constructor() {
         this._tileIdProvider = new TileIdProvider();
@@ -31,37 +34,38 @@ export class BoardService {
             this._tileIdProvider
         );
         this._boosterCreateResolver = new BoosterCreateResolver();
+
+        const boosterActivationResolver = new BoosterActivationResolver();
+        this._blastChainResolver = new BlastChainResolver(boosterActivationResolver);
     }
 
-    public resolveNormalClick(session: LevelSession, tileId: number): BoardActionResult {
-        const boardModel = session.getBoardModel();
-        const boardGroupsModel = session.getBoardGroupsModel();
-
-        if (!boardGroupsModel) {
-            return BoardActionResult.invalid(tileId);
-        }
-
-        this._tileIdProvider.syncFromBoard(boardModel);
-
-        let clickedTile: TileData | null = null;
-
-        boardModel.forEachTile((tile) => {
-            if (tile !== null && tile.tileId === tileId) {
-                clickedTile = tile;
-            }
-        });
+    public resolveClick(session: LevelSession, tileId: number): BoardActionResult {
+        const clickedTile = this.findTileById(session, tileId);
 
         if (clickedTile === null) {
             return BoardActionResult.invalid(tileId);
         }
 
-        if (clickedTile.type !== TileType.Normal) {
-            return BoardActionResult.invalid(tileId);
+        if (clickedTile.type === TileType.Normal) {
+            return this.resolveNormalClick(session, clickedTile);
         }
 
-        const group = boardGroupsModel.getGroupByTileId(tileId);
+        return this.resolveBoosterClick(session, clickedTile);
+    }
+
+    private resolveNormalClick(session: LevelSession, clickedTile: TileData): BoardActionResult {
+        const boardModel = session.getBoardModel();
+        const boardGroupsModel = session.getBoardGroupsModel();
+
+        if (!boardGroupsModel) {
+            return BoardActionResult.invalid(clickedTile.tileId);
+        }
+
+        this._tileIdProvider.syncFromBoard(boardModel);
+
+        const group = boardGroupsModel.getGroupByTileId(clickedTile.tileId);
         if (group === null) {
-            return BoardActionResult.invalid(tileId);
+            return BoardActionResult.invalid(clickedTile.tileId);
         }
 
         const groupSize = group.tiles.length;
@@ -76,23 +80,62 @@ export class BoardService {
 
         const fallStep = this.buildFallStepAfterDestroyAndBooster(
             session,
-            destroyStep,
+            [destroyStep],
             boosterCreateStep
         );
 
         const refillStep = this.buildRefillStepAfterDestroyBoosterAndFall(
             session,
-            destroyStep,
+            [destroyStep],
             boosterCreateStep,
             fallStep
         );
 
         return BoardActionResult.validNormalClick(
-            tileId,
+            clickedTile.tileId,
             groupSize,
             scoreGained,
             destroyStep,
             boosterCreateStep,
+            fallStep,
+            refillStep
+        );
+    }
+
+    private resolveBoosterClick(session: LevelSession, clickedTile: TileData): BoardActionResult {
+        const boardModel = session.getBoardModel();
+
+        this._tileIdProvider.syncFromBoard(boardModel);
+
+        const destroySteps = this._blastChainResolver.resolveFromInitialBoosters(
+            [clickedTile],
+            boardModel
+        );
+
+        if (destroySteps.length === 0) {
+            return BoardActionResult.invalid(clickedTile.tileId);
+        }
+
+        const destroyedCount = this.countDestroyedTiles(destroySteps);
+        const scoreGained = destroyedCount * BoardService.SCORE_PER_TILE;
+
+        const fallStep = this.buildFallStepAfterDestroyAndBooster(
+            session,
+            destroySteps,
+            null
+        );
+
+        const refillStep = this.buildRefillStepAfterDestroyBoosterAndFall(
+            session,
+            destroySteps,
+            null,
+            fallStep
+        );
+
+        return BoardActionResult.validBoosterClick(
+            clickedTile.tileId,
+            scoreGained,
+            destroySteps,
             fallStep,
             refillStep
         );
@@ -164,13 +207,12 @@ export class BoardService {
 
     private buildFallStepAfterDestroyAndBooster(
         session: LevelSession,
-        destroyStep: DestroyStep,
+        destroySteps: DestroyStep[],
         boosterCreateStep: BoosterCreateStep | null
     ): FallStep | null {
         const boardModel = session.getBoardModel();
         const width = boardModel.getWidth();
-        const height = boardModel.getHeight();
-        const destroySet = new Set<number>(destroyStep.tileIds);
+        const destroySet = this.createDestroySet(destroySteps);
 
         const boosterPositions = this.getBoosterVirtualPositions(boosterCreateStep);
         const allMoves: FallMove[] = [];
@@ -178,7 +220,7 @@ export class BoardService {
         for (let x = 0; x < width; x++) {
             const survivors: VirtualTilePosition[] = [];
 
-            for (let y = 0; y < height; y++) {
+            for (let y = 0; y < boardModel.getHeight(); y++) {
                 const tile = boardModel.getTile(x, y);
 
                 if (tile === null) {
@@ -230,7 +272,7 @@ export class BoardService {
 
     private buildRefillStepAfterDestroyBoosterAndFall(
         session: LevelSession,
-        destroyStep: DestroyStep,
+        destroySteps: DestroyStep[],
         boosterCreateStep: BoosterCreateStep | null,
         fallStep: FallStep | null
     ): RefillStep | null {
@@ -239,7 +281,7 @@ export class BoardService {
         const width = boardModel.getWidth();
         const height = boardModel.getHeight();
 
-        const destroySet = new Set<number>(destroyStep.tileIds);
+        const destroySet = this.createDestroySet(destroySteps);
         const finalOccupied = new Set<number>();
 
         boardModel.forEachTile((tile, x, y) => {
@@ -288,6 +330,35 @@ export class BoardService {
         }
 
         return new RefillStep(spawns);
+    }
+
+    private createDestroySet(destroySteps: DestroyStep[]): Set<number> {
+        const destroySet = new Set<number>();
+
+        for (const step of destroySteps) {
+            for (const tileId of step.tileIds) {
+                destroySet.add(tileId);
+            }
+        }
+
+        return destroySet;
+    }
+
+    private countDestroyedTiles(destroySteps: DestroyStep[]): number {
+        return this.createDestroySet(destroySteps).size;
+    }
+
+    private findTileById(session: LevelSession, tileId: number): TileData | null {
+        const boardModel = session.getBoardModel();
+        let result: TileData | null = null;
+
+        boardModel.forEachTile((tile) => {
+            if (tile !== null && tile.tileId === tileId) {
+                result = tile;
+            }
+        });
+
+        return result;
     }
 
     private getBoosterVirtualPositions(boosterCreateStep: BoosterCreateStep | null): VirtualTilePosition[] {
