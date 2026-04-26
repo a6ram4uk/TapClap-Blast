@@ -212,18 +212,16 @@ export default class BoardView extends cc.Component {
     private applyLayout(boardModel: BoardModel): void {
         this.ensureCellSize();
 
-        const canvasSize = cc.view.getVisibleSize();
-
         const layout = this._layoutResolver.resolve(
-            canvasSize.width,
-            canvasSize.height,
+            this.boardRoot.width,
+            this.boardRoot.height,
             boardModel.getWidth(),
             boardModel.getHeight(),
             this._cellSize
         );
 
-        this.boardRoot.setScale(layout.scale);
-        this.boardRoot.setPosition(layout.positionX, layout.positionY);
+        this.boardContent.setScale(layout.scale);
+        this.boardContent.setPosition(layout.positionX, layout.positionY);
     }
 
     private ensureCellSize(): void {

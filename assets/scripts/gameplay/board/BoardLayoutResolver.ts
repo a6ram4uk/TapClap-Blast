@@ -7,26 +7,23 @@ export interface BoardLayoutResult {
 }
 
 export class BoardLayoutResolver {
+    private readonly _sidePadding: number;
     private readonly _topPadding: number;
     private readonly _bottomPadding: number;
-    private readonly _sidePadding: number;
-    private readonly _hudReservedHeight: number;
 
     constructor(
-        topPadding: number = 40,
-        bottomPadding: number = 40,
-        sidePadding: number = 40,
-        hudReservedHeight: number = 220
+        sidePadding: number = 20,
+        topPadding: number = 20,
+        bottomPadding: number = 20
     ) {
+        this._sidePadding = sidePadding;
         this._topPadding = topPadding;
         this._bottomPadding = bottomPadding;
-        this._sidePadding = sidePadding;
-        this._hudReservedHeight = hudReservedHeight;
     }
 
     public resolve(
-        screenWidth: number,
-        screenHeight: number,
+        areaWidth: number,
+        areaHeight: number,
         boardWidthInCells: number,
         boardHeightInCells: number,
         cellSize: number
@@ -34,9 +31,8 @@ export class BoardLayoutResolver {
         const boardPixelWidth = boardWidthInCells * cellSize;
         const boardPixelHeight = boardHeightInCells * cellSize;
 
-        const availableWidth = screenWidth - this._sidePadding * 2;
-        const availableHeight =
-            screenHeight - this._topPadding - this._bottomPadding - this._hudReservedHeight;
+        const availableWidth = areaWidth - this._sidePadding * 2;
+        const availableHeight = areaHeight - this._topPadding - this._bottomPadding;
 
         const scaleX = availableWidth / boardPixelWidth;
         const scaleY = availableHeight / boardPixelHeight;
@@ -45,17 +41,10 @@ export class BoardLayoutResolver {
         const scaledWidth = boardPixelWidth * scale;
         const scaledHeight = boardPixelHeight * scale;
 
-        const positionX = -scaledWidth * 0.5;
-        const gameplayAreaTop = screenHeight * 0.5 - this._topPadding - this._hudReservedHeight;
-        const gameplayAreaBottom = -screenHeight * 0.5 + this._bottomPadding;
-        const gameplayAreaCenterY = (gameplayAreaTop + gameplayAreaBottom) * 0.5;
-
-        const positionY = gameplayAreaCenterY - scaledHeight * 0.5;
-
         return {
             scale,
-            positionX,
-            positionY,
+            positionX: (areaWidth - scaledWidth) * 0.5,
+            positionY: (areaHeight - scaledHeight) * 0.5,
             boardPixelWidth,
             boardPixelHeight,
         };

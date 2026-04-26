@@ -13,6 +13,7 @@ import { LevelSession } from "../../core/session/LevelSession";
 import { BoardStepExecutor } from "../execution/BoardStepExecutor";
 import BoardView from "../views/BoardView";
 import GameResultView from "../views/GameResultView";
+import GameHudView from "../views/GameHudView";
 
 const { ccclass, property } = cc._decorator;
 
@@ -23,6 +24,9 @@ export default class GameEntry extends cc.Component {
 
     @property(GameResultView)
     public gameResultView: GameResultView = null!;
+
+    @property(GameHudView)
+    public gameHudView: GameHudView = null!;
 
     private readonly _validator: LevelValidator = new LevelValidator();
     private readonly _catalogLoader: LevelsCatalogLoader = new LevelsCatalogLoader(this._validator);
@@ -79,6 +83,8 @@ export default class GameEntry extends cc.Component {
 
         this.logGroupsSummary();
         this.resolveAndHandleGameStatus();
+
+        this.gameHudView.updateHud(this._session.getGameStateModel());
     }
 
     private async onTileClicked(tileId: number): Promise<void> {
@@ -111,6 +117,8 @@ export default class GameEntry extends cc.Component {
 
             this.rebuildBoardGroupsModel();
             this.resolveAndHandleGameStatus();
+
+            this.gameHudView.updateHud(this._session.getGameStateModel());
 
             this.logActionResult(tileId, result);
             this.logGroupsSummary();
