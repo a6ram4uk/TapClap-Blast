@@ -4,6 +4,9 @@ import { GroupFinder } from "../../core/groups/GroupFinder";
 import { LevelsCatalogLoader } from "../../core/loaders/LevelsCatalogLoader";
 import { LevelLoader } from "../../core/loaders/LevelLoader";
 import { GameStatus } from "../../core/models/GameStatus";
+import { BoardSnapshotFactory } from "../../core/progress/BoardSnapshotFactory";
+import { ProgressSaveData } from "../../core/progress/ProgressSaveData";
+import { ProgressStorage } from "../../core/progress/ProgressStorage";
 import { BoardService } from "../../core/services/BoardService";
 import { GameOutcomeResolver } from "../../core/services/GameOutcomeResolver";
 import { LevelValidator } from "../../core/services/LevelValidator";
@@ -36,13 +39,15 @@ export default class GameEntry extends cc.Component {
     private readonly _groupFinder: GroupFinder = new GroupFinder();
     private readonly _boardService: BoardService = new BoardService();
     private readonly _gameOutcomeResolver: GameOutcomeResolver = new GameOutcomeResolver();
+    private readonly _progressStorage: ProgressStorage = new ProgressStorage();
+    private readonly _boardSnapshotFactory: BoardSnapshotFactory = new BoardSnapshotFactory();
 
     private _session: LevelSession | null = null;
     private _stepExecutor: BoardStepExecutor | null = null;
     private _isBusy: boolean = false;
     private _isLevelFinished: boolean = false;
 
-    private _completedLevelsCount: number = 0;
+    private _progress: ProgressSaveData = this._progressStorage.load();
 
     protected async start(): Promise<void> {
         try {
@@ -71,13 +76,35 @@ export default class GameEntry extends cc.Component {
         }
 
         const catalog = await this._catalogLoader.loadCatalog();
-        const currentLevelId = this._levelSequenceResolver.resolveCurrentLevelId(
-            catalog,
-            this._completedLevelsCount
-        );
 
-        const levelData = await this._levelLoader.loadLevel(currentLevelId);
-        this._session = this._sessionFactory.createFromLevelData(levelData);
+        const levelId = this._progress.activeLevel
+            ? this._progress.activeLevel.levelId
+            : this._levelSequenceResolver.resolveCurrentLevelId(
+                catalog,
+                this._progress.completedLevelsCount
+            );
+
+        const levelData = await this._levelLoader.loadLevel(levelId);
+
+        if (this._progress.activeLevel) {
+            try {
+                this._session = this._sessionFactory.createFromSaveData(
+                    levelData,
+                    this._progress.activeLevel
+                );
+
+                cc.log(`[GameEntry] Restored level from snapshot: ${levelId}`);
+            } catch (error) {
+                cc.warn("[GameEntry] Invalid snapshot. Starting level from scratch.", error);
+
+                this._progress.activeLevel = null;
+                this._progressStorage.save(this._progress);
+
+                this._session = this._sessionFactory.createFromLevelData(levelData);
+            }
+        } else {
+            this._session = this._sessionFactory.createFromLevelData(levelData);
+        }
 
         this.rebuildBoardGroupsModel();
 
@@ -89,11 +116,14 @@ export default class GameEntry extends cc.Component {
             this.boardView
         );
 
-        cc.log(`[GameEntry] Loaded level: ${this._session.getLevelId()}, completed=${this._completedLevelsCount}`);
-
-        this.logGroupsSummary();
         this.resolveAndHandleGameStatus();
         this.updateHud();
+
+        cc.log(
+            `[GameEntry] Loaded level: ${this._session.getLevelId()}, completed=${this._progress.completedLevelsCount}`
+        );
+
+        this.logGroupsSummary();
     }
 
     private async onNextLevelClicked(): Promise<void> {
@@ -101,7 +131,6 @@ export default class GameEntry extends cc.Component {
             return;
         }
 
-        this._completedLevelsCount += 1;
         await this.loadCurrentLevel();
     }
 
@@ -109,6 +138,9 @@ export default class GameEntry extends cc.Component {
         if (this._isBusy) {
             return;
         }
+
+        this._progress.activeLevel = null;
+        this._progressStorage.save(this._progress);
 
         await this.loadCurrentLevel();
     }
@@ -144,6 +176,8 @@ export default class GameEntry extends cc.Component {
             this.rebuildBoardGroupsModel();
             this.resolveAndHandleGameStatus();
             this.updateHud();
+
+            this.saveProgressAfterResolvedMove();
 
             this.logActionResult(tileId, result);
             this.logGroupsSummary();
@@ -196,9 +230,42 @@ export default class GameEntry extends cc.Component {
             `[GameEntry] Level finished. status=${status}, score=${gameState.score}, target=${gameState.targetScore}, movesLeft=${gameState.movesLeft}`
         );
 
+        if (status === GameStatus.Won) {
+            this._progress.completedLevelsCount += 1;
+            this._progress.activeLevel = null;
+            this._progressStorage.save(this._progress);
+        }
+
+        if (status === GameStatus.Lost) {
+            this._progress.activeLevel = null;
+            this._progressStorage.save(this._progress);
+        }
+
         if (this.gameResultView) {
             this.gameResultView.show(status);
         }
+    }
+
+    private saveProgressAfterResolvedMove(): void {
+        if (!this._session) {
+            return;
+        }
+
+        const gameState = this._session.getGameStateModel();
+
+        if (gameState.status !== GameStatus.Playing) {
+            return;
+        }
+
+        this._progress.activeLevel = {
+            levelId: this._session.getLevelId(),
+            boardCells: this._boardSnapshotFactory.createSnapshot(this._session.getBoardModel()),
+            refillQueues: this._session.getRefillSource().createQueuesSnapshot(),
+            score: gameState.score,
+            movesLeft: gameState.movesLeft,
+        };
+
+        this._progressStorage.save(this._progress);
     }
 
     private updateHud(): void {

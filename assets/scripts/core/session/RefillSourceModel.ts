@@ -1,37 +1,27 @@
 export class RefillSourceModel {
-    private readonly _columnQueues: number[][];
+    private readonly _refillQueues: number[][];
     private readonly _randomTileTypes: number[];
 
-    constructor(columnQueues: number[][], randomTileTypes: number[]) {
-        this._columnQueues = columnQueues.map(queue => queue.slice());
+    constructor(refillQueues: number[][], randomTileTypes: number[]) {
+        this._refillQueues = refillQueues.map(queue => queue.slice());
         this._randomTileTypes = randomTileTypes.slice();
     }
 
-    public getColumnCount(): number {
-        return this._columnQueues.length;
-    }
+    public popPreparedTile(column: number): number | null {
+        const queue = this._refillQueues[column];
 
-    public getRemainingQueueForColumn(column: number): number[] {
-        return this._columnQueues[column].slice();
-    }
+        if (!queue || queue.length === 0) {
+            return null;
+        }
 
-    public getAllRemainingQueues(): number[][] {
-        return this._columnQueues.map(queue => queue.slice());
+        return queue.shift()!;
     }
 
     public getRandomTileTypes(): number[] {
         return this._randomTileTypes.slice();
     }
 
-    public hasPreparedTile(column: number): boolean {
-        return this._columnQueues[column].length > 0;
-    }
-
-    public popPreparedTile(column: number): number | null {
-        if (this._columnQueues[column].length === 0) {
-            return null;
-        }
-
-        return this._columnQueues[column].shift() ?? null;
+    public createQueuesSnapshot(): number[][] {
+        return this._refillQueues.map(queue => queue.slice());
     }
 }

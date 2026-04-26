@@ -2,14 +2,18 @@ import { BoardFactory } from "../board/BoardFactory";
 import { LevelData } from "../data/LevelData";
 import { GameStateModel } from "../models/GameStateModel";
 import { GameStatus } from "../models/GameStatus";
+import { ActiveLevelSaveData } from "../progress/ActiveLevelSaveData";
+import { BoardSnapshotFactory } from "../progress/BoardSnapshotFactory";
 import { LevelSession } from "../session/LevelSession";
 import { RefillSourceModel } from "../session/RefillSourceModel";
 
 export class LevelSessionFactory {
     private readonly _boardFactory: BoardFactory;
+    private readonly _boardSnapshotFactory: BoardSnapshotFactory;
 
     constructor() {
         this._boardFactory = new BoardFactory();
+        this._boardSnapshotFactory = new BoardSnapshotFactory();
     }
 
     public createFromLevelData(levelData: LevelData): LevelSession {
@@ -35,6 +39,42 @@ export class LevelSessionFactory {
         );
     }
 
+    public createFromSaveData(
+        levelData: LevelData,
+        saveData: ActiveLevelSaveData
+    ): LevelSession {
+        if (saveData.levelId !== levelData.id) {
+            throw new Error(
+                `[LevelSessionFactory] Save levelId mismatch. Save=${saveData.levelId}, Level=${levelData.id}`
+            );
+        }
+
+        const boardModel = this._boardSnapshotFactory.createBoardFromSnapshot(
+            levelData.width,
+            levelData.height,
+            saveData.boardCells
+        );
+
+        const refillSource = new RefillSourceModel(
+            saveData.refillQueues,
+            levelData.randomTileTypes
+        );
+
+        const gameStateModel = new GameStateModel(
+            saveData.score,
+            saveData.movesLeft,
+            levelData.targetScore,
+            GameStatus.Playing
+        );
+
+        return new LevelSession(
+            levelData.id,
+            boardModel,
+            gameStateModel,
+            refillSource
+        );
+    }
+
     private buildRefillQueues(width: number, visualSupply: number[]): number[][] {
         const queues: number[][] = [];
 
@@ -48,7 +88,11 @@ export class LevelSessionFactory {
             const rowStartIndex = rowFromTop * width;
 
             for (let x = 0; x < width; x++) {
-                queues[x].push(visualSupply[rowStartIndex + x]);
+                const value = visualSupply[rowStartIndex + x];
+
+                if (value !== 0) {
+                    queues[x].push(value);
+                }
             }
         }
 
