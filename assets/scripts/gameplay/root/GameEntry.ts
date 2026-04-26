@@ -180,7 +180,7 @@ export default class GameEntry extends cc.Component {
         );
 
         if (this.gameResultView) {
-            this.gameResultView.show(status, gameState);
+            this.gameResultView.show(status);
         }
     }
 
