@@ -2,8 +2,8 @@
   "id": "level_003",
   "width": 6,
   "height": 6,
-  "moves": 20,
-  "targetScore": 1000,
+  "moves": 30,
+  "targetScore": 300,
 
   "cells": [
     1, 2, 3, 1, 2, 3,

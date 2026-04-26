@@ -1163,7 +1163,9 @@
     "panel": {
       "__id__": 6
     },
-    "nextButton": null,
+    "nextButton": {
+      "__id__": 14
+    },
     "_id": ""
   },
   {

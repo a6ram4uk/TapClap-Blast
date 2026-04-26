@@ -12,8 +12,8 @@ import { LevelSessionFactory } from "../../core/services/LevelSessionFactory";
 import { LevelSession } from "../../core/session/LevelSession";
 import { BoardStepExecutor } from "../execution/BoardStepExecutor";
 import BoardView from "../views/BoardView";
-import GameResultView from "../views/GameResultView";
 import GameHudView from "../views/GameHudView";
+import GameResultView from "../views/GameResultView";
 
 const { ccclass, property } = cc._decorator;
 
@@ -22,11 +22,11 @@ export default class GameEntry extends cc.Component {
     @property(BoardView)
     public boardView: BoardView = null!;
 
-    @property(GameResultView)
-    public gameResultView: GameResultView = null!;
-
     @property(GameHudView)
     public gameHudView: GameHudView = null!;
+
+    @property(GameResultView)
+    public gameResultView: GameResultView = null!;
 
     private readonly _validator: LevelValidator = new LevelValidator();
     private readonly _catalogLoader: LevelsCatalogLoader = new LevelsCatalogLoader(this._validator);
@@ -42,15 +42,27 @@ export default class GameEntry extends cc.Component {
     private _isBusy: boolean = false;
     private _isLevelFinished: boolean = false;
 
+    private _completedLevelsCount: number = 0;
+
     protected async start(): Promise<void> {
         try {
-            await this.bootstrap();
+            this.setupResultHandlers();
+            await this.loadCurrentLevel();
         } catch (error) {
-            cc.error("[GameEntry] Bootstrap failed:", error);
+            cc.error("[GameEntry] Start failed:", error);
         }
     }
 
-    private async bootstrap(): Promise<void> {
+    private setupResultHandlers(): void {
+        if (!this.gameResultView) {
+            return;
+        }
+
+        this.gameResultView.setNextHandler(this.onNextLevelClicked.bind(this));
+        this.gameResultView.setRestartHandler(this.onRestartClicked.bind(this));
+    }
+
+    private async loadCurrentLevel(): Promise<void> {
         this._isBusy = false;
         this._isLevelFinished = false;
 
@@ -58,12 +70,10 @@ export default class GameEntry extends cc.Component {
             this.gameResultView.hide();
         }
 
-        const completedLevelsCount = 0;
-
         const catalog = await this._catalogLoader.loadCatalog();
         const currentLevelId = this._levelSequenceResolver.resolveCurrentLevelId(
             catalog,
-            completedLevelsCount
+            this._completedLevelsCount
         );
 
         const levelData = await this._levelLoader.loadLevel(currentLevelId);
@@ -79,12 +89,28 @@ export default class GameEntry extends cc.Component {
             this.boardView
         );
 
-        cc.log(`[GameEntry] Loaded level: ${this._session.getLevelId()}`);
+        cc.log(`[GameEntry] Loaded level: ${this._session.getLevelId()}, completed=${this._completedLevelsCount}`);
 
         this.logGroupsSummary();
         this.resolveAndHandleGameStatus();
+        this.updateHud();
+    }
 
-        this.gameHudView.updateHud(this._session.getGameStateModel());
+    private async onNextLevelClicked(): Promise<void> {
+        if (this._isBusy) {
+            return;
+        }
+
+        this._completedLevelsCount += 1;
+        await this.loadCurrentLevel();
+    }
+
+    private async onRestartClicked(): Promise<void> {
+        if (this._isBusy) {
+            return;
+        }
+
+        await this.loadCurrentLevel();
     }
 
     private async onTileClicked(tileId: number): Promise<void> {
@@ -117,8 +143,7 @@ export default class GameEntry extends cc.Component {
 
             this.rebuildBoardGroupsModel();
             this.resolveAndHandleGameStatus();
-
-            this.gameHudView.updateHud(this._session.getGameStateModel());
+            this.updateHud();
 
             this.logActionResult(tileId, result);
             this.logGroupsSummary();
@@ -130,11 +155,7 @@ export default class GameEntry extends cc.Component {
     }
 
     private applyActionResult(result: BoardActionResult): void {
-        if (!this._session) {
-            return;
-        }
-
-        if (!result.isValidAction) {
+        if (!this._session || !result.isValidAction) {
             return;
         }
 
@@ -163,11 +184,7 @@ export default class GameEntry extends cc.Component {
     }
 
     private handleLevelFinished(status: GameStatus): void {
-        if (!this._session) {
-            return;
-        }
-
-        if (this._isLevelFinished) {
+        if (!this._session || this._isLevelFinished) {
             return;
         }
 
@@ -182,6 +199,14 @@ export default class GameEntry extends cc.Component {
         if (this.gameResultView) {
             this.gameResultView.show(status);
         }
+    }
+
+    private updateHud(): void {
+        if (!this._session || !this.gameHudView) {
+            return;
+        }
+
+        this.gameHudView.updateHud(this._session.getGameStateModel());
     }
 
     private rebuildBoardGroupsModel(): void {
