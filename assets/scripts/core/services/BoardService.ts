@@ -12,6 +12,7 @@ import { BoosterActivationResolver } from "./BoosterActivationResolver";
 import { BoosterCreateResolver } from "./BoosterCreateResolver";
 import { RefillTileFactory } from "./RefillTileFactory";
 import { TileIdProvider } from "./TileIdProvider";
+import { BoosterType } from "../boosters/BoosterType";
 
 interface VirtualTilePosition {
     tileId: number;
@@ -51,6 +52,18 @@ export class BoardService {
         }
 
         return this.resolveBoosterClick(session, clickedTile);
+    }
+
+    public resolveBoosterToolUse(
+        session: LevelSession,
+        boosterType: BoosterType,
+        targetTileIds: number[]
+    ): BoardActionResult {
+        if (boosterType === BoosterType.Bomb) {
+            return this.resolveBombToolUse(session, targetTileIds);
+        }
+
+        return BoardActionResult.invalid(targetTileIds.length > 0 ? targetTileIds[0] : -1);
     }
 
     private resolveNormalClick(session: LevelSession, clickedTile: TileData): BoardActionResult {
@@ -134,6 +147,86 @@ export class BoardService {
 
         return BoardActionResult.validBoosterClick(
             clickedTile.tileId,
+            scoreGained,
+            destroySteps,
+            fallStep,
+            refillStep
+        );
+    }
+
+    private resolveBombToolUse(session: LevelSession, targetTileIds: number[]): BoardActionResult {
+        if (targetTileIds.length !== 1) {
+            return BoardActionResult.invalid(-1);
+        }
+
+        const targetTile = this.findTileById(session, targetTileIds[0]);
+
+        if (targetTile === null) {
+            return BoardActionResult.invalid(targetTileIds[0]);
+        }
+
+        const boardModel = session.getBoardModel();
+        this._tileIdProvider.syncFromBoard(boardModel);
+
+        const affectedNormalTileIds: number[] = [];
+        const affectedBoosters: TileData[] = [];
+
+        for (let y = targetTile.y - 1; y <= targetTile.y + 1; y++) {
+            for (let x = targetTile.x - 1; x <= targetTile.x + 1; x++) {
+                if (!boardModel.isInside(x, y)) {
+                    continue;
+                }
+
+                const tile = boardModel.getTile(x, y);
+                if (tile === null) {
+                    continue;
+                }
+
+                if (tile.type === TileType.Normal) {
+                    affectedNormalTileIds.push(tile.tileId);
+                } else {
+                    affectedBoosters.push(tile);
+                }
+            }
+        }
+
+        const destroySteps: DestroyStep[] = [];
+
+        if (affectedNormalTileIds.length > 0) {
+            destroySteps.push(new DestroyStep(affectedNormalTileIds));
+        }
+
+        const chainSteps = this._blastChainResolver.resolveFromInitialBoosters(
+            affectedBoosters,
+            boardModel
+        );
+
+        for (const step of chainSteps) {
+            destroySteps.push(step);
+        }
+
+        if (destroySteps.length === 0) {
+            return BoardActionResult.invalid(targetTile.tileId);
+        }
+
+        const destroyedCount = this.countDestroyedTiles(destroySteps);
+        const scoreGained = destroyedCount * BoardService.SCORE_PER_TILE;
+
+        const fallStep = this.buildFallStepAfterDestroyAndBooster(
+            session,
+            destroySteps,
+            null
+        );
+
+        const refillStep = this.buildRefillStepAfterDestroyBoosterAndFall(
+            session,
+            destroySteps,
+            null,
+            fallStep
+        );
+
+        return BoardActionResult.validBoosterClick(
+            targetTile.tileId,
             scoreGained,
             destroySteps,
             fallStep,

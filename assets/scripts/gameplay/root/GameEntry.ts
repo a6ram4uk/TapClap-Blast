@@ -1,4 +1,6 @@
 import { BoardActionResult } from "../../core/actions/BoardActionResult";
+import { BoosterInventoryModel } from "../../core/boosters/BoosterInventoryModel";
+import { BoosterType } from "../../core/boosters/BoosterType";
 import { BoardGroupsModel } from "../../core/groups/BoardGroupsModel";
 import { GroupFinder } from "../../core/groups/GroupFinder";
 import { LevelsCatalogLoader } from "../../core/loaders/LevelsCatalogLoader";
@@ -14,7 +16,9 @@ import { LevelSequenceResolver } from "../../core/services/LevelSequenceResolver
 import { LevelSessionFactory } from "../../core/services/LevelSessionFactory";
 import { LevelSession } from "../../core/session/LevelSession";
 import { BoardStepExecutor } from "../execution/BoardStepExecutor";
+import { BoardSelectionController } from "../input/BoardSelectionController";
 import BoardView from "../views/BoardView";
+import BoosterBarView from "../views/BoosterBarView";
 import GameHudView from "../views/GameHudView";
 import GameResultView from "../views/GameResultView";
 
@@ -31,6 +35,9 @@ export default class GameEntry extends cc.Component {
     @property(GameResultView)
     public gameResultView: GameResultView = null!;
 
+    @property(BoosterBarView)
+    public boosterBarView: BoosterBarView = null!;
+
     private readonly _validator: LevelValidator = new LevelValidator();
     private readonly _catalogLoader: LevelsCatalogLoader = new LevelsCatalogLoader(this._validator);
     private readonly _levelLoader: LevelLoader = new LevelLoader(this._validator);
@@ -41,6 +48,7 @@ export default class GameEntry extends cc.Component {
     private readonly _gameOutcomeResolver: GameOutcomeResolver = new GameOutcomeResolver();
     private readonly _progressStorage: ProgressStorage = new ProgressStorage();
     private readonly _boardSnapshotFactory: BoardSnapshotFactory = new BoardSnapshotFactory();
+    private readonly _boardSelectionController: BoardSelectionController = new BoardSelectionController();
 
     private _session: LevelSession | null = null;
     private _stepExecutor: BoardStepExecutor | null = null;
@@ -49,9 +57,14 @@ export default class GameEntry extends cc.Component {
 
     private _progress: ProgressSaveData = this._progressStorage.load();
 
+    private _boosterInventory: BoosterInventoryModel | null = null;
+    private _selectedBoosterType: BoosterType | null = null;
+
     protected async start(): Promise<void> {
         try {
             this.setupResultHandlers();
+            this.setupBoosterHandlers();
+
             await this.loadCurrentLevel();
         } catch (error) {
             cc.error("[GameEntry] Start failed:", error);
@@ -67,13 +80,25 @@ export default class GameEntry extends cc.Component {
         this.gameResultView.setRestartHandler(this.onRestartClicked.bind(this));
     }
 
+    private setupBoosterHandlers(): void {
+        if (!this.boosterBarView) {
+            return;
+        }
+
+        this.boosterBarView.setClickHandler(this.onBoosterButtonClicked.bind(this));
+    }
+
     private async loadCurrentLevel(): Promise<void> {
         this._isBusy = false;
         this._isLevelFinished = false;
 
+        this.cancelBoosterSelection();
+
         if (this.gameResultView) {
             this.gameResultView.hide();
         }
+
+        this.ensureBoosterInventory();
 
         const catalog = await this._catalogLoader.loadCatalog();
 
@@ -118,6 +143,7 @@ export default class GameEntry extends cc.Component {
 
         this.resolveAndHandleGameStatus();
         this.updateHud();
+        this.updateBoosterBar();
 
         cc.log(
             `[GameEntry] Loaded level: ${this._session.getLevelId()}, completed=${this._progress.completedLevelsCount}`
@@ -154,6 +180,11 @@ export default class GameEntry extends cc.Component {
             return;
         }
 
+        if (this._boardSelectionController.isSelecting()) {
+            this._boardSelectionController.acceptTile(tileId);
+            return;
+        }
+
         if (this._session.getGameStateModel().status !== GameStatus.Playing) {
             return;
         }
@@ -163,6 +194,67 @@ export default class GameEntry extends cc.Component {
         if (!result.isValidAction) {
             cc.log(`[Click] invalid tileId=${tileId}`);
             this.boardView.playInvalidClick(tileId);
+            return;
+        }
+
+        await this.executeActionResult(tileId, result);
+    }
+
+    private async onBoosterButtonClicked(type: BoosterType): Promise<void> {
+        if (this._isBusy || this._isLevelFinished) {
+            return;
+        }
+
+        if (!this._session || !this._stepExecutor) {
+            return;
+        }
+
+        if (!this._boosterInventory || !this._boosterInventory.hasAny(type)) {
+            cc.log(`[GameEntry] No boosters left: ${type}`);
+            return;
+        }
+
+        if (this._boardSelectionController.isSelecting()) {
+            this.cancelBoosterSelection();
+            return;
+        }
+
+        this._selectedBoosterType = type;
+        this.updateBoosterBar();
+
+        const requiredSelectionCount = this.getBoosterRequiredSelectionCount(type);
+        const selectedTileIds = await this._boardSelectionController.selectTiles(requiredSelectionCount);
+
+        await this.useSelectedBooster(type, selectedTileIds);
+    }
+
+    private async useSelectedBooster(type: BoosterType, selectedTileIds: number[]): Promise<void> {
+        if (!this._session || !this._stepExecutor || !this._boosterInventory) {
+            return;
+        }
+
+        this._selectedBoosterType = null;
+        this.updateBoosterBar();
+
+        const result = this._boardService.resolveBoosterToolUse(
+            this._session,
+            type,
+            selectedTileIds
+        );
+
+        if (!result.isValidAction) {
+            cc.log(`[GameEntry] Invalid booster use: ${type}`);
+            return;
+        }
+
+        this._boosterInventory.consume(type);
+        this.syncBoosterInventoryToProgress();
+
+        await this.executeActionResult(selectedTileIds[0], result);
+    }
+
+    private async executeActionResult(tileId: number, result: BoardActionResult): Promise<void> {
+        if (!this._session || !this._stepExecutor) {
             return;
         }
 
@@ -176,13 +268,14 @@ export default class GameEntry extends cc.Component {
             this.rebuildBoardGroupsModel();
             this.resolveAndHandleGameStatus();
             this.updateHud();
+            this.updateBoosterBar();
 
             this.saveProgressAfterResolvedMove();
 
             this.logActionResult(tileId, result);
             this.logGroupsSummary();
         } catch (error) {
-            cc.error("[GameEntry] Failed to resolve click:", error);
+            cc.error("[GameEntry] Failed to execute action result:", error);
         } finally {
             this._isBusy = false;
         }
@@ -223,6 +316,7 @@ export default class GameEntry extends cc.Component {
         }
 
         this._isLevelFinished = true;
+        this.cancelBoosterSelection();
 
         const gameState = this._session.getGameStateModel();
 
@@ -246,6 +340,56 @@ export default class GameEntry extends cc.Component {
         }
     }
 
+    private ensureBoosterInventory(): void {
+        if (this._boosterInventory) {
+            return;
+        }
+
+        this._boosterInventory = new BoosterInventoryModel(
+            this._progress.boosters.bomb,
+            this._progress.boosters.teleport
+        );
+    }
+
+    private updateBoosterBar(): void {
+        if (!this._boosterInventory || !this.boosterBarView) {
+            return;
+        }
+
+        this.boosterBarView.updateInventory(this._boosterInventory);
+        this.boosterBarView.setSelectedBooster(this._selectedBoosterType);
+    }
+
+    private cancelBoosterSelection(): void {
+        this._boardSelectionController.cancel();
+        this._selectedBoosterType = null;
+        this.updateBoosterBar();
+    }
+
+    private getBoosterRequiredSelectionCount(type: BoosterType): number {
+        switch (type) {
+            case BoosterType.Bomb:
+                return 1;
+
+            case BoosterType.Teleport:
+                return 2;
+
+            default:
+                throw new Error(`[GameEntry] Unknown booster type: ${type}`);
+        }
+    }
+
+    private syncBoosterInventoryToProgress(): void {
+        if (!this._boosterInventory) {
+            return;
+        }
+
+        this._progress.boosters.bomb = this._boosterInventory.getCount(BoosterType.Bomb);
+        this._progress.boosters.teleport = this._boosterInventory.getCount(BoosterType.Teleport);
+
+        this._progressStorage.save(this._progress);
+    }
+
     private saveProgressAfterResolvedMove(): void {
         if (!this._session) {
             return;
@@ -255,6 +399,11 @@ export default class GameEntry extends cc.Component {
 
         if (gameState.status !== GameStatus.Playing) {
             return;
+        }
+
+        if (this._boosterInventory) {
+            this._progress.boosters.bomb = this._boosterInventory.getCount(BoosterType.Bomb);
+            this._progress.boosters.teleport = this._boosterInventory.getCount(BoosterType.Teleport);
         }
 
         this._progress.activeLevel = {

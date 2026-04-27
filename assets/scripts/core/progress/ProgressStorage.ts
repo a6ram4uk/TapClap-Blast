@@ -2,7 +2,8 @@ import { ProgressSaveData } from "./ProgressSaveData";
 
 export class ProgressStorage {
     private static readonly STORAGE_KEY = "tapclap_blast_progress";
-    private static readonly VERSION = 1;
+    private static readonly VERSION = 0;
+    private static readonly BOOSTER_BOMB_INIT_COUNT = 100;
 
     public load(): ProgressSaveData {
         const raw = cc.sys.localStorage.getItem(ProgressStorage.STORAGE_KEY);
@@ -21,6 +22,10 @@ export class ProgressStorage {
             return {
                 version: ProgressStorage.VERSION,
                 completedLevelsCount: Math.max(0, parsed.completedLevelsCount || 0),
+                boosters: {
+                    bomb: parsed.boosters ? Math.max(0, parsed.boosters.bomb || 0) : ProgressStorage.BOOSTER_BOMB_INIT_COUNT,
+                    teleport: parsed.boosters ? Math.max(0, parsed.boosters.teleport || 0) : 0,
+                },
                 activeLevel: parsed.activeLevel || null,
             };
         } catch (error) {
@@ -36,14 +41,6 @@ export class ProgressStorage {
         );
     }
 
-    public saveCompletedOnly(completedLevelsCount: number): void {
-        this.save({
-            version: ProgressStorage.VERSION,
-            completedLevelsCount,
-            activeLevel: null,
-        });
-    }
-
     public clear(): void {
         cc.sys.localStorage.removeItem(ProgressStorage.STORAGE_KEY);
     }
@@ -52,6 +49,10 @@ export class ProgressStorage {
         return {
             version: ProgressStorage.VERSION,
             completedLevelsCount: 0,
+            boosters: {
+                bomb: ProgressStorage.BOOSTER_BOMB_INIT_COUNT,
+                teleport: 0,
+            },
             activeLevel: null,
         };
     }
