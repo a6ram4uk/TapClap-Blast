@@ -43,6 +43,23 @@ export default class TileView extends cc.Component {
         this.node.destroy();
     }
 
+    public prepareForPool(): void {
+        this.stopTweens();
+
+        this.node.off(cc.Node.EventType.TOUCH_END, this.onTouchEnd, this);
+
+        this.node.active = false;
+        this.node.opacity = 255;
+        this.node.scale = 1;
+
+        this.visualRoot.active = true;
+        this.visualRoot.opacity = 255;
+        this.visualRoot.scale = 1;
+
+        this._clickHandler = null;
+        this._isAnimatingInvalidClick = false;
+    }
+
     public playDestroy(): Promise<void> {
         this.stopTweens();
 

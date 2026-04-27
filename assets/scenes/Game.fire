@@ -1396,11 +1396,11 @@
     "boardContent": {
       "__id__": 26
     },
-    "spriteProvider": {
-      "__id__": 30
-    },
     "tilePrefab": {
       "__uuid__": "285018bd-494f-4f1e-a4db-897ac7509129"
+    },
+    "spriteProvider": {
+      "__id__": 30
     },
     "_id": "017/DDKclNnLyDzvliZn1O"
   },

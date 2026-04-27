@@ -40,5 +40,7 @@ export class BoardStepExecutor {
 
             await this._boardView.animateRefill(result.refillStep.spawns);
         }
+
+        this._boardView.refreshTileDrawOrder();
     }
 }

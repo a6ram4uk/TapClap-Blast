@@ -6,8 +6,9 @@ import { TileData } from "../../core/models/TileData";
 import { TileType } from "../../core/models/TileType";
 import { BoardLayoutResolver } from "../board/BoardLayoutResolver";
 import { BoardAnimationConfig } from "../config/BoardAnimationConfig";
-import TileView from "./TileView";
 import TileSpriteProvider from "./TileSpriteProvider";
+import TileView from "./TileView";
+import { TileViewPool } from "./TileViewPool";
 
 const { ccclass, property } = cc._decorator;
 
@@ -19,24 +20,25 @@ export default class BoardView extends cc.Component {
     @property(cc.Node)
     public boardContent: cc.Node = null!;
 
-    @property(TileSpriteProvider)
-    public spriteProvider: TileSpriteProvider = null!;
-
     @property(cc.Prefab)
     public tilePrefab: cc.Prefab = null!;
+
+    @property(TileSpriteProvider)
+    public spriteProvider: TileSpriteProvider = null!;
 
     private readonly _layoutResolver: BoardLayoutResolver = new BoardLayoutResolver();
     private readonly _tileViewsById: Map<number, TileView> = new Map<number, TileView>();
 
     private _tileClickHandler: ((tileId: number) => void) | null = null;
     private _cellSize: number = 0;
+    private _tileViewPool: TileViewPool | null = null;
 
     public setTileClickHandler(handler: (tileId: number) => void): void {
         this._tileClickHandler = handler;
     }
 
     public render(boardModel: BoardModel): void {
-        this.ensureCellSize();
+        this.ensureInitialized();
 
         this.clearBoard();
         this.applyLayout(boardModel);
@@ -51,7 +53,7 @@ export default class BoardView extends cc.Component {
     }
 
     public createBoosterViews(boosters: BoosterCreateInfo[]): void {
-        this.ensureCellSize();
+        this.ensureInitialized();
 
         for (const booster of boosters) {
             const tile = new TileData(
@@ -67,7 +69,7 @@ export default class BoardView extends cc.Component {
     }
 
     public createRefillViews(spawns: RefillSpawn[]): void {
-        this.ensureCellSize();
+        this.ensureInitialized();
 
         for (const spawn of spawns) {
             const tile = new TileData(
@@ -165,15 +167,41 @@ export default class BoardView extends cc.Component {
         await Promise.all(animations);
     }
 
+    public refreshTileDrawOrder(): void {
+        const views: TileView[] = [];
+
+        this._tileViewsById.forEach((tileView) => {
+            if (tileView.node.active) {
+                views.push(tileView);
+            }
+        });
+
+        views.sort((a, b) => {
+            if (a.node.y !== b.node.y) {
+                return a.node.y - b.node.y;
+            }
+
+            return a.node.x - b.node.x;
+        });
+
+        for (let i = 0; i < views.length; i++) {
+            views[i].node.setSiblingIndex(i);
+        }
+    }
+
     private createAndSetupTileView(tile: TileData, x: number, y: number): TileView {
+        this.ensureInitialized();
+
         if (this._tileViewsById.has(tile.tileId)) {
             this.removeTileView(tile.tileId);
         }
 
-        const tileView = this.createTileView();
-        const spriteFrame = this.getTileSprite(tile.type, tile.color);
+        const tileView = this.getTileViewFromPool();
 
+        tileView.node.parent = this.boardContent;
         tileView.node.setPosition(this.getLocalPosition(x, y));
+
+        const spriteFrame = this.getTileSprite(tile.type, tile.color);
         tileView.setup(tile, spriteFrame);
         tileView.setClickHandler(this.onTileClickedFromView.bind(this));
 
@@ -188,20 +216,29 @@ export default class BoardView extends cc.Component {
             return;
         }
 
-        tileView.dispose();
         this._tileViewsById.delete(tileId);
+        this.releaseTileView(tileView);
     }
 
-    private createTileView(): TileView {
-        const tileNode = cc.instantiate(this.tilePrefab);
-        tileNode.parent = this.boardContent;
-        tileNode.setAnchorPoint(0, 0);
+    private getTileViewFromPool(): TileView {
+        if (!this._tileViewPool) {
+            throw new Error("[BoardView] TileViewPool is not initialized.");
+        }
 
-        return tileNode.getComponent(TileView);
+        return this._tileViewPool.get();
+    }
+
+    private releaseTileView(tileView: TileView): void {
+        if (!this._tileViewPool) {
+            tileView.dispose();
+            return;
+        }
+
+        this._tileViewPool.release(tileView);
     }
 
     private getLocalPosition(x: number, y: number): cc.Vec2 {
-        this.ensureCellSize();
+        this.ensureInitialized();
 
         return cc.v2(
             x * this._cellSize,
@@ -210,7 +247,7 @@ export default class BoardView extends cc.Component {
     }
 
     private applyLayout(boardModel: BoardModel): void {
-        this.ensureCellSize();
+        this.ensureInitialized();
 
         const layout = this._layoutResolver.resolve(
             this.boardRoot.width,
@@ -222,37 +259,6 @@ export default class BoardView extends cc.Component {
 
         this.boardContent.setScale(layout.scale);
         this.boardContent.setPosition(layout.positionX, layout.positionY);
-    }
-
-    private ensureCellSize(): void {
-        if (this._cellSize > 0) {
-            return;
-        }
-
-        if (!this.tilePrefab || !this.tilePrefab.data) {
-            throw new Error("[BoardView] tilePrefab is not assigned.");
-        }
-
-        this._cellSize = this.tilePrefab.data.width;
-
-        if (this._cellSize <= 0) {
-            throw new Error(`[BoardView] Invalid tile prefab width: ${this._cellSize}`);
-        }
-    }
-
-    private onTileClickedFromView(tileId: number): void {
-        if (this._tileClickHandler) {
-            this._tileClickHandler(tileId);
-        }
-    }
-
-    private clearBoard(): void {
-        this._tileViewsById.forEach((tileView) => {
-            tileView.dispose();
-        });
-
-        this._tileViewsById.clear();
-        this.boardContent.removeAllChildren();
     }
 
     private getTileSprite(tileType: TileType, color: number | null): cc.SpriteFrame {
@@ -278,5 +284,68 @@ export default class BoardView extends cc.Component {
             default:
                 throw new Error(`[BoardView] Unknown tile type: ${tileType}`);
         }
+    }
+
+    private ensureInitialized(): void {
+        this.ensureCellSize();
+        this.ensurePool();
+    }
+
+    private ensureCellSize(): void {
+        if (this._cellSize > 0) {
+            return;
+        }
+
+        if (!this.tilePrefab || !this.tilePrefab.data) {
+            throw new Error("[BoardView] tilePrefab is not assigned.");
+        }
+
+        this._cellSize = this.tilePrefab.data.width;
+
+        if (this._cellSize <= 0) {
+            throw new Error(`[BoardView] Invalid tile prefab width: ${this._cellSize}`);
+        }
+    }
+
+    private ensurePool(): void {
+        if (this._tileViewPool) {
+            return;
+        }
+
+        if (!this.tilePrefab) {
+            throw new Error("[BoardView] tilePrefab is not assigned.");
+        }
+
+        if (!this.boardContent) {
+            throw new Error("[BoardView] boardContent is not assigned.");
+        }
+
+        this._tileViewPool = new TileViewPool(this.tilePrefab, this.boardContent);
+    }
+
+    private onTileClickedFromView(tileId: number): void {
+        if (this._tileClickHandler) {
+            this._tileClickHandler(tileId);
+        }
+    }
+
+    private clearBoard(): void {
+        const activeViews: TileView[] = [];
+
+        this._tileViewsById.forEach((tileView) => {
+            activeViews.push(tileView);
+        });
+
+        this._tileViewsById.clear();
+
+        if (!this._tileViewPool) {
+            for (const tileView of activeViews) {
+                tileView.dispose();
+            }
+
+            return;
+        }
+
+        this._tileViewPool.releaseMany(activeViews);
     }
 }
