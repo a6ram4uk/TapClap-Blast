@@ -135,6 +135,7 @@ export default class GameEntry extends cc.Component {
 
         this.boardView.setTileClickHandler(this.onTileClicked.bind(this));
         this.boardView.render(this._session.getBoardModel());
+        this.boardView.refreshTileDrawOrder();
 
         this._stepExecutor = new BoardStepExecutor(
             this._boardService,
